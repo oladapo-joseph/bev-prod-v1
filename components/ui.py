@@ -1,0 +1,335 @@
+"""
+components/ui.py — Shared UI helpers, CSS injection, and reusable widgets
+"""
+
+import streamlit as st
+from datetime import date
+from data.reference import LINES
+
+
+# ── Efficiency helpers ────────────────────────────────────────────────────────
+def efficiency(produced: int, target: int) -> float:
+    if target == 0:
+        return 0.0
+    return min(round((produced / target) * 100, 1), 100.0)
+
+
+def eff_color(e: float) -> str:
+    if e >= 85:
+        return "var(--accent)"
+    if e >= 70:
+        return "var(--warn)"
+    return "var(--red)"
+
+
+# ── OEE helpers ──────────────────────────────────────────────────────────────
+def calc_oee(
+    plan_hrs: float,
+    actual_hrs: float,
+    packs_produced: int,
+    packs_target: int,
+    packs_rejected: int,
+) -> dict:
+    """
+    Returns a dict with availability, performance, quality, oee (all 0-100).
+    Formula:
+      Availability = actual_hrs / plan_hrs
+      Ideal Rate   = packs_target / plan_hrs  (cases/hr at full speed)
+      Performance  = packs_produced / (actual_hrs * ideal_rate)
+      Quality      = (packs_produced - packs_rejected) / packs_produced
+      OEE          = Availability * Performance * Quality
+    """
+    if plan_hrs <= 0:
+        return dict(availability=0.0, performance=0.0, quality=0.0, oee=0.0)
+
+    availability = min(actual_hrs / plan_hrs, 1.0)
+
+    ideal_rate = packs_target / plan_hrs if plan_hrs > 0 else 0
+    if ideal_rate > 0 and actual_hrs > 0:
+        performance = min(packs_produced / (actual_hrs * ideal_rate), 1.0)
+    else:
+        performance = 0.0
+
+    good_packs = max(packs_produced - packs_rejected, 0)
+    quality = (good_packs / packs_produced) if packs_produced > 0 else 0.0
+
+    oee = availability * performance * quality
+
+    return dict(
+        availability = round(availability * 100, 1),
+        performance  = round(performance  * 100, 1),
+        quality      = round(quality      * 100, 1),
+        oee          = round(oee          * 100, 1),
+    )
+
+
+def oee_color(oee: float) -> str:
+    """World-class OEE ≥ 85%, acceptable ≥ 65%."""
+    if oee >= 85: return "var(--accent)"
+    if oee >= 65: return "var(--warn)"
+    return "var(--red)"
+
+
+def oee_badge(oee_dict: dict) -> str:
+    """Render a compact OEE breakdown badge as HTML string."""
+    col = oee_color(oee_dict["oee"])
+    return (
+        "<div style='display:flex;gap:16px;flex-wrap:wrap;align-items:center;"
+        "background:var(--surface2);border:1px solid var(--border);"
+        "border-radius:8px;padding:10px 14px;margin-top:8px'>"
+        "<div style='text-align:center'>"
+        "<div style='font-family:Space Mono,monospace;font-size:1.3rem;"
+        "font-weight:700;color:%s'>%s%%</div>"
+        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase;"
+        "letter-spacing:.8px'>OEE</div></div>"
+        "<div style='width:1px;background:var(--border);align-self:stretch'></div>"
+        "<div style='text-align:center'>"
+        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:var(--text)'>%s%%</div>"
+        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Availability</div></div>"
+        "<div style='text-align:center'>"
+        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:var(--text)'>%s%%</div>"
+        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Performance</div></div>"
+        "<div style='text-align:center'>"
+        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:var(--text)'>%s%%</div>"
+        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Quality</div></div>"
+        "</div>"
+    ) % (col, oee_dict["oee"], oee_dict["availability"],
+         oee_dict["performance"], oee_dict["quality"])
+
+
+# ── Card components ───────────────────────────────────────────────────────────
+def kpi_card(value, label: str, cls: str = "", color: str = None):
+    color = color or ("var(--red)" if cls == "danger" else "var(--warn)" if cls == "warn" else "var(--accent)")
+    st.markdown(
+        f"<div class='metric-card {cls}'>"
+        f"<div class='metric-value' style='color:{color}'>{value}</div>"
+        f"<div class='metric-label'>{label}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def kpi_mini(value, label: str, cls: str = ""):
+    st.markdown(
+        f"<div class='kpi-mini'>"
+        f"<span class='kpi-mini-label'>{label}</span>"
+        f"<span class='kpi-mini-val {cls}'>{value}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def line_badge(line_number: int) -> str:
+    return f"<span class='line-badge'>LINE {line_number}</span>"
+
+
+def section_header(text: str):
+    st.markdown(f"<div class='section-header'>{text}</div>", unsafe_allow_html=True)
+
+
+def alert_banner(line_number: int, message: str):
+    st.markdown(
+        f"<div class='alert-banner'>"
+        f"<span class='ab-line'>LINE {line_number}</span>"
+        f"<span class='ab-msg'>{message}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ── Production report table ───────────────────────────────────────────────────
+def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
+    """
+    Render the line efficiency summary table matching the plant report format.
+    prod_df   : production_runs dataframe (closed runs only)
+    fault_df  : fault_records dataframe (linked or all, for the same period)
+
+    Time columns come from actual run timestamps (run_start / run_end) stored
+    on each production_run row — not estimated from shift counts.
+    Rows: Plan Time, Actual Time, Down Time, Plan Production,
+          Actual Production, Production Loss, Line Efficiency.
+    """
+    import pandas as pd
+    from data.reference import LINES
+
+    st.markdown(
+        f"<div class='chart-title' style='font-size:.9rem;margin-bottom:12px'>{title}</div>",
+        unsafe_allow_html=True,
+    )
+
+    if prod_df.empty:
+        st.info("No production data for this period.")
+        return
+
+    rows: dict = {}
+    for ln in LINES:
+        lp = prod_df[prod_df["line_number"] == ln]
+        lf = fault_df[fault_df["line_number"] == ln] if not fault_df.empty else pd.DataFrame()
+
+        plan_packs   = int(lp["packs_target"].sum())   if not lp.empty else 0
+        actual_packs = int(lp["packs_produced"].sum()) if not lp.empty else 0
+        loss_packs   = plan_packs - actual_packs
+
+        # Use stored time values if available, otherwise fall back to shift estimate
+        if not lp.empty and "plan_time_hrs" in lp.columns and lp["plan_time_hrs"].notna().any():
+            plan_hrs   = round(float(lp["plan_time_hrs"].sum()), 2)
+            actual_hrs = round(float(lp["actual_time_hrs"].fillna(0).sum()), 2)
+            down_hrs   = round(float(lp["down_time_hrs"].fillna(0).sum()), 2)
+        else:
+            shifts_logged = lp["shift"].nunique() if not lp.empty else 0
+            plan_hrs      = round(shifts_logged * 8, 2)
+            down_hrs      = round(int(lf["downtime_minutes"].sum()) / 60, 2) if not lf.empty else 0.0
+            actual_hrs    = round(plan_hrs - down_hrs, 2)
+
+        rows[ln] = dict(
+            plan_hrs=plan_hrs, actual_hrs=actual_hrs, down_hrs=down_hrs,
+            plan_packs=plan_packs, actual_packs=actual_packs,
+            loss_packs=loss_packs,
+            eff=efficiency(actual_packs, plan_packs),
+        )
+
+    tot = {k: sum(rows[ln][k] for ln in LINES)
+           for k in ["plan_hrs", "actual_hrs", "down_hrs", "plan_packs", "actual_packs", "loss_packs"]}
+    tot["eff"] = efficiency(tot["actual_packs"], tot["plan_packs"])
+
+    def _fmt(v, is_hrs=False, is_neg=False):
+        if v == 0:
+            return "—"
+        if is_neg and v < 0:
+            return f"({abs(v):,.2f})" if is_hrs else f"({abs(int(v)):,})"
+        return f"{v:,.2f}" if is_hrs else f"{int(v):,}"
+
+    def _eff_cls(e):
+        return "eff-green" if e >= 85 else ("eff-warn" if e >= 70 else "eff-red")
+
+    def _row(label, uom, key, is_hrs=False, is_neg=False):
+        cells = ""
+        for ln in LINES:
+            v = rows[ln][key]
+            neg = is_neg and v < 0
+            neg_cls = " class='neg'" if neg else ""
+            cells += f"<td{neg_cls}>{_fmt(v, is_hrs, is_neg)}</td>"
+        tv = tot[key]
+        tot_cls = "total neg" if is_neg and tv < 0 else "total"
+        cells += f"<td class='{tot_cls}'>{_fmt(tv, is_hrs, is_neg)}</td>"
+        return f"<tr><td class='label'>{label}</td><td class='uom'>{uom}</td>{cells}</tr>"
+
+    eff_cells = ""
+    for ln in LINES:
+        e = rows[ln]["eff"]
+        cls = _eff_cls(e)
+        eff_cells += f"<td class='{cls}'>{e}%</td>" if rows[ln]["plan_packs"] > 0 else "<td class='eff-red'>—</td>"
+    tot_eff = tot["eff"]
+    tot_eff_cls = _eff_cls(tot_eff)
+    eff_cells += f"<td class='{tot_eff_cls} total'>{tot_eff}%</td>"
+
+    line_hdrs = "".join(f"<th>LINE #{ln}</th>" for ln in LINES)
+    html = f"""
+    <div style='overflow-x:auto;margin-bottom:20px'>
+    <table class='report-table'>
+      <thead><tr><th style='text-align:left'>Metric</th><th>UOM</th>{line_hdrs}<th>Total</th></tr></thead>
+      <tbody>
+        {_row("Plan Time",          "hrs",   "plan_hrs",    is_hrs=True)}
+        {_row("Actual Time",        "hrs",   "actual_hrs",  is_hrs=True)}
+        {_row("Down Time",          "hrs",   "down_hrs",    is_hrs=True, is_neg=True)}
+        {_row("Plan Production",    "Packs", "plan_packs")}
+        {_row("Actual Production",  "Packs", "actual_packs")}
+        {_row("Production Loss",    "Packs", "loss_packs",  is_neg=True)}
+        <tr><td class='label'>Line Efficiency</td><td class='uom'>%</td>{eff_cells}</tr>
+      </tbody>
+    </table></div>"""
+    st.markdown(html, unsafe_allow_html=True)
+
+    # CSV export
+    metrics = [
+        ("Plan Time (hrs)",            "plan_hrs"),
+        ("Actual Time (hrs)",          "actual_hrs"),
+        ("Down Time (hrs)",            "down_hrs"),
+        ("Plan Production (Packs)",    "plan_packs"),
+        ("Actual Production (Packs)",  "actual_packs"),
+        ("Production Loss (Packs)",    "loss_packs"),
+        ("Line Efficiency (%)",        "eff"),
+    ]
+    export = []
+    for label, key in metrics:
+        r = {"Metric": label}
+        for ln in LINES:
+            r[f"Line {ln}"] = rows[ln][key]
+        r["Total"] = tot[key]
+        export.append(r)
+
+    import pandas as pd
+    st.download_button(
+        "⬇️ Export Report CSV",
+        pd.DataFrame(export).to_csv(index=False).encode(),
+        "production_report.csv",
+        "text/csv",
+        key=f"rep_dl_{title[:12]}",
+    )
+
+
+# ── CSS injection ─────────────────────────────────────────────────────────────
+def inject_css():
+    st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+:root{--bg:#0d0f14;--surface:#161922;--surface2:#1c2030;--border:#252a35;
+      --accent:#00e5a0;--accent2:#ff6b35;--manager:#7c6ff7;
+      --warn:#ffcc00;--text:#e8eaf0;--muted:#6b7280;--red:#ff4757;}
+html,body,[data-testid="stAppViewContainer"]{background-color:var(--bg)!important;color:var(--text)!important;font-family:'DM Sans',sans-serif!important;}
+[data-testid="stSidebar"]{background-color:var(--surface)!important;border-right:1px solid var(--border);}
+h1,h2,h3{font-family:'Space Mono',monospace!important;letter-spacing:-0.5px;}
+
+.login-wrap{max-width:420px;margin:60px auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px 36px;box-shadow:0 8px 40px #00000060;}
+.login-logo{font-family:'Space Mono',monospace;font-size:1.6rem;font-weight:700;color:var(--accent);margin-bottom:4px;}
+.login-sub{color:var(--muted);font-size:0.85rem;margin-bottom:28px;}
+
+.role-badge{display:inline-block;padding:3px 12px;border-radius:20px;font-family:'Space Mono',monospace;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
+.role-shift_lead{background:#00e5a015;border:1px solid var(--accent);color:var(--accent);}
+.role-manager{background:#7c6ff715;border:1px solid var(--manager);color:var(--manager);}
+.role-admin{background:#ff475715;border:1px solid var(--red);color:var(--red);}
+
+.kpi-mini{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;}
+.kpi-mini-val{font-family:'Space Mono',monospace;font-size:0.95rem;font-weight:700;color:var(--accent);}
+.kpi-mini-val.warn{color:var(--warn);}
+.kpi-mini-val.danger{color:var(--red);}
+.kpi-mini-label{font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;}
+
+.metric-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:12px;position:relative;overflow:hidden;}
+.metric-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:var(--accent);}
+.metric-card.warn::before{background:var(--warn);}
+.metric-card.danger::before{background:var(--red);}
+.metric-card.manager::before{background:var(--manager);}
+.metric-value{font-family:'Space Mono',monospace;font-size:2rem;font-weight:700;color:var(--accent);line-height:1;}
+.metric-label{font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;}
+
+.line-badge{display:inline-block;background:#00e5a015;border:1px solid var(--accent);color:var(--accent);font-family:'Space Mono',monospace;font-size:0.7rem;padding:2px 10px;border-radius:20px;}
+.section-header{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:2px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;}
+.alert-banner{background:#ff475712;border:1px solid var(--red);border-radius:10px;padding:12px 18px;margin-bottom:10px;display:flex;align-items:center;gap:12px;}
+.alert-banner .ab-line{font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--red);font-weight:700;}
+.alert-banner .ab-msg{font-size:0.85rem;color:var(--text);}
+.target-preview{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-top:8px;font-family:'Space Mono',monospace;}
+
+.report-table{width:100%;border-collapse:collapse;font-size:0.82rem;font-family:'DM Sans',sans-serif;}
+.report-table th{background:#1c2030;color:var(--muted);font-size:0.68rem;text-transform:uppercase;letter-spacing:.8px;padding:8px 12px;border:1px solid var(--border);text-align:center;}
+.report-table td{padding:8px 12px;border:1px solid var(--border);text-align:center;color:var(--text);}
+.report-table tr:nth-child(even) td{background:#161922;}
+.report-table td.label{text-align:left;font-weight:500;color:var(--muted);}
+.report-table td.uom{color:var(--muted);font-size:0.75rem;}
+.report-table td.total{font-family:'Space Mono',monospace;font-weight:700;color:var(--accent);background:#00e5a008!important;}
+.report-table td.eff-green{color:var(--accent);font-family:'Space Mono',monospace;font-weight:700;}
+.report-table td.eff-warn{color:var(--warn);font-family:'Space Mono',monospace;font-weight:700;}
+.report-table td.eff-red{color:var(--red);font-family:'Space Mono',monospace;font-weight:700;}
+.report-table td.neg{color:var(--accent);}
+
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] > div > div,[data-testid="stTextArea"] textarea{
+    background-color:#1e2230!important;border:1px solid var(--border)!important;
+    border-radius:8px!important;color:var(--text)!important;font-family:'DM Sans',sans-serif!important;}
+[data-testid="stSelectbox"] > div > div:hover,[data-testid="stTextInput"] input:focus{border-color:var(--accent)!important;}
+.stButton>button{background:var(--accent)!important;color:#0d0f14!important;font-family:'Space Mono',monospace!important;font-weight:700!important;border:none!important;border-radius:8px!important;padding:10px 28px!important;font-size:0.85rem!important;letter-spacing:0.5px!important;transition:opacity 0.2s!important;}
+.stButton>button:hover{opacity:0.85!important;}
+.stDataFrame{border-radius:10px;overflow:hidden;}
+.stAlert{border-radius:8px!important;}
+div[data-testid="stTab"] button{font-family:'Space Mono',monospace!important;font-size:0.75rem!important;}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
+.chart-title{font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;}
+</style>
+""", unsafe_allow_html=True)
