@@ -17,7 +17,7 @@ st.set_page_config(
 from db   import init_db
 from auth import authenticate, require_login, current_user, logout
 from config import read_sql
-from components.ui import inject_css, kpi_mini, efficiency
+from components.ui import inject_css, kpi_mini, efficiency, theme_toggle
 from data.reference import LINES, SHIFTS
 
 import views.log_production   as log_production
@@ -201,21 +201,28 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<div class='section-header'>Today at a glance</div>", unsafe_allow_html=True)
 
-    _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(date.today())])
-    _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?",          params=[str(date.today())])
+    _tp  = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(date.today())])
+    _tf  = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[str(date.today())])
+    _or  = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[str(date.today())])
+    _ul  = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[str(date.today())])
 
-    _packs = int(_tp["p"].iloc[0])   if _tp["p"].iloc[0]   else 0
-    _tgt   = int(_tp["t"].iloc[0])   if _tp["t"].iloc[0]   else 0
-    _eff   = efficiency(_packs, _tgt)
-    _fc    = int(_tf["cnt"].iloc[0]) if _tf["cnt"].iloc[0] else 0
-    _dt    = int(_tf["dt"].iloc[0])  if _tf["dt"].iloc[0]  else 0
+    _packs    = int(_tp["p"].iloc[0])   if _tp["p"].iloc[0]   else 0
+    _tgt      = int(_tp["t"].iloc[0])   if _tp["t"].iloc[0]   else 0
+    _eff      = efficiency(_packs, _tgt)
+    _fc       = int(_tf["cnt"].iloc[0]) if _tf["cnt"].iloc[0] else 0
+    _dt       = int(_tf["dt"].iloc[0])  if _tf["dt"].iloc[0]  else 0
+    _open_ct  = int(_or["cnt"].iloc[0]) if _or["cnt"].iloc[0] else 0
+    _unlinked = int(_ul["cnt"].iloc[0]) if _ul["cnt"].iloc[0] else 0
 
-    kpi_mini(f"{_packs:,}", "Cases today")
-    kpi_mini(f"{_eff}%",    "Efficiency",  "warn"   if _eff < 85 else "")
-    kpi_mini(_fc,           "Faults",      "danger" if _fc > 5 else "warn" if _fc > 2 else "")
-    kpi_mini(f"{_dt}m",     "Downtime",    "warn"   if _dt > 60 else "")
+    kpi_mini(f"{_packs:,}",   "Cases today")
+    kpi_mini(f"{_eff}%",      "Efficiency",     "warn"   if _eff < 85 else "")
+    kpi_mini(f"{_open_ct}",   "Open runs",      "warn"   if _open_ct > 0 else "")
+    kpi_mini(_fc,             "Faults",         "danger" if _fc > 5 else "warn" if _fc > 2 else "")
+    kpi_mini(f"{_dt}m",       "Downtime",       "warn"   if _dt > 60 else "")
+    kpi_mini(f"{_unlinked}",  "Unlinked faults","warn"   if _unlinked > 0 else "")
 
     st.markdown("---")
+    theme_toggle()
     if st.button("🚪 Logout"):
         logout()
 

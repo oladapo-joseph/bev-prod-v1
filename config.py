@@ -22,16 +22,16 @@ import os
 import pyodbc
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 
-load_dotenv()
+env = dotenv_values('.env')
 
 # ── Connection settings from environment ─────────────────────────────────────
-_SERVER   = os.getenv("DB_SERVER",   "localhost")
-_DATABASE = os.getenv("DB_NAME",     "bev_prod")
-_USER     = os.getenv("DB_USER",     "sa")
-_PASSWORD = os.getenv("DB_PASSWORD", "")
-_DRIVER   = os.getenv("DB_DRIVER",   "ODBC Driver 17 for SQL Server")
+_SERVER   = env['DB_SERVER'] 
+_DATABASE = env["DB_NAME"]
+_USER     = env["DB_USER"]
+_PASSWORD = env["DB_PASSWORD"]
+_DRIVER   = env["DB_DRIVER"]
 
 
 def _build_conn_str() -> str:

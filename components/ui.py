@@ -265,19 +265,97 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
     )
 
 
-# ── CSS injection ─────────────────────────────────────────────────────────────
-def inject_css():
-    st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
-:root{--bg:#0d0f14;--surface:#161922;--surface2:#1c2030;--border:#252a35;
-      --accent:#00e5a0;--accent2:#ff6b35;--manager:#7c6ff7;
-      --warn:#ffcc00;--text:#e8eaf0;--muted:#6b7280;--red:#ff4757;}
-html,body,[data-testid="stAppViewContainer"]{background-color:var(--bg)!important;color:var(--text)!important;font-family:'DM Sans',sans-serif!important;}
-[data-testid="stSidebar"]{background-color:var(--surface)!important;border-right:1px solid var(--border);}
-h1,h2,h3{font-family:'Space Mono',monospace!important;letter-spacing:-0.5px;}
+# ── Theme tokens ─────────────────────────────────────────────────────────────
+DARK_THEME = """
+:root{
+    --bg:#0d0f14; --surface:#161922; --surface2:#1c2030; --border:#252a35;
+    --accent:#00e5a0; --accent2:#ff6b35; --manager:#7c6ff7;
+    --warn:#ffcc00; --text:#e8eaf0; --muted:#6b7280; --red:#ff4757;
+    --input-bg:#1e2230; --btn-text:#0d0f14;
+    --report-row:#161922; --report-head:#1c2030;
+}"""
 
-.login-wrap{max-width:420px;margin:60px auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px 36px;box-shadow:0 8px 40px #00000060;}
+LIGHT_THEME = """
+:root{
+    --bg:#f4f6f9; --surface:#ffffff; --surface2:#eef1f6; --border:#d1d9e6;
+    --accent:#009e6e; --accent2:#d9531e; --manager:#5b52cc;
+    --warn:#c49a00; --text:#1a1f2e; --muted:#6b7280; --red:#cc2233;
+    --input-bg:#ffffff; --btn-text:#ffffff;
+    --report-row:#f8fafc; --report-head:#eef1f6;
+}"""
+
+SHARED_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+/* ── Base & Streamlit chrome ── */
+html,body,[data-testid="stAppViewContainer"],
+[data-testid="stApp"],
+.main, .block-container,
+[data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"]{
+    background-color:var(--bg)!important;
+    color:var(--text)!important;
+    font-family:'DM Sans',sans-serif!important;
+}
+[data-testid="stSidebar"]{background-color:var(--surface)!important;border-right:1px solid var(--border);}
+[data-testid="stSidebar"] *{color:var(--text)!important;}
+
+/* ── All text elements ── */
+p, span, div, li, label, small,
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] span,
+[data-testid="stMarkdownContainer"] li,
+.stMarkdown, .stMarkdown p, .stMarkdown span{
+    color:var(--text)!important;
+}
+
+/* ── Headings ── */
+h1,h2,h3,h4,h5,h6{
+    font-family:'Space Mono',monospace!important;
+    letter-spacing:-0.5px;
+    color:var(--text)!important;
+}
+
+/* ── Radio & selectbox labels ── */
+[data-testid="stRadio"] label,
+[data-testid="stSelectbox"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stTextInput"] label,
+[data-testid="stTextArea"] label,
+[data-testid="stDateInput"] label,
+[data-testid="stCheckbox"] label,
+[data-testid="stTimeInput"] label,
+[data-baseweb="select"] span,
+.stRadio label, .stCheckbox label{
+    color:var(--text)!important;
+}
+
+/* ── Tabs ── */
+[data-testid="stTabs"] [data-baseweb="tab"]{color:var(--muted)!important;}
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"]{color:var(--accent)!important;}
+[data-testid="stTabs"] [data-baseweb="tab-list"]{background:var(--surface)!important;border-bottom:1px solid var(--border)!important;}
+
+/* ── Expander ── */
+[data-testid="stExpander"]{background:var(--surface)!important;border:1px solid var(--border)!important;border-radius:8px!important;}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary span,
+[data-testid="stExpander"] summary p{color:var(--text)!important;}
+
+/* ── Info / warning / error boxes ── */
+[data-testid="stAlert"]{border-radius:8px!important;}
+[data-testid="stAlert"] p{color:inherit!important;}
+
+/* ── Dataframe ── */
+.stDataFrame, [data-testid="stDataFrame"]{border-radius:10px;overflow:hidden;}
+[data-testid="stDataFrame"] th{background:var(--surface2)!important;color:var(--muted)!important;}
+[data-testid="stDataFrame"] td{color:var(--text)!important;background:var(--surface)!important;}
+
+/* ── Toggle (st.toggle) ── */
+[data-testid="stToggle"] label,
+[data-testid="stToggle"] span{color:var(--text)!important;}
+
+.login-wrap{max-width:420px;margin:60px auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px 36px;box-shadow:0 8px 24px #00000018;}
 .login-logo{font-family:'Space Mono',monospace;font-size:1.6rem;font-weight:700;color:var(--accent);margin-bottom:4px;}
 .login-sub{color:var(--muted);font-size:0.85rem;margin-bottom:28px;}
 
@@ -308,9 +386,9 @@ h1,h2,h3{font-family:'Space Mono',monospace!important;letter-spacing:-0.5px;}
 .target-preview{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-top:8px;font-family:'Space Mono',monospace;}
 
 .report-table{width:100%;border-collapse:collapse;font-size:0.82rem;font-family:'DM Sans',sans-serif;}
-.report-table th{background:#1c2030;color:var(--muted);font-size:0.68rem;text-transform:uppercase;letter-spacing:.8px;padding:8px 12px;border:1px solid var(--border);text-align:center;}
+.report-table th{background:var(--report-head);color:var(--muted);font-size:0.68rem;text-transform:uppercase;letter-spacing:.8px;padding:8px 12px;border:1px solid var(--border);text-align:center;}
 .report-table td{padding:8px 12px;border:1px solid var(--border);text-align:center;color:var(--text);}
-.report-table tr:nth-child(even) td{background:#161922;}
+.report-table tr:nth-child(even) td{background:var(--report-row);}
 .report-table td.label{text-align:left;font-weight:500;color:var(--muted);}
 .report-table td.uom{color:var(--muted);font-size:0.75rem;}
 .report-table td.total{font-family:'Space Mono',monospace;font-weight:700;color:var(--accent);background:#00e5a008!important;}
@@ -321,15 +399,36 @@ h1,h2,h3{font-family:'Space Mono',monospace!important;letter-spacing:-0.5px;}
 
 [data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,
 [data-testid="stSelectbox"] > div > div,[data-testid="stTextArea"] textarea{
-    background-color:#1e2230!important;border:1px solid var(--border)!important;
+    background-color:var(--input-bg)!important;border:1px solid var(--border)!important;
     border-radius:8px!important;color:var(--text)!important;font-family:'DM Sans',sans-serif!important;}
 [data-testid="stSelectbox"] > div > div:hover,[data-testid="stTextInput"] input:focus{border-color:var(--accent)!important;}
-.stButton>button{background:var(--accent)!important;color:#0d0f14!important;font-family:'Space Mono',monospace!important;font-weight:700!important;border:none!important;border-radius:8px!important;padding:10px 28px!important;font-size:0.85rem!important;letter-spacing:0.5px!important;transition:opacity 0.2s!important;}
+.stButton>button{background:var(--accent)!important;color:var(--btn-text)!important;font-family:'Space Mono',monospace!important;font-weight:700!important;border:none!important;border-radius:8px!important;padding:10px 28px!important;font-size:0.85rem!important;letter-spacing:0.5px!important;transition:opacity 0.2s!important;}
 .stButton>button:hover{opacity:0.85!important;}
 .stDataFrame{border-radius:10px;overflow:hidden;}
 .stAlert{border-radius:8px!important;}
 div[data-testid="stTab"] button{font-family:'Space Mono',monospace!important;font-size:0.75rem!important;}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
 .chart-title{font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;}
-</style>
-""", unsafe_allow_html=True)
+"""
+
+
+# ── CSS injection ─────────────────────────────────────────────────────────────
+def inject_css():
+    """Inject theme + shared CSS. Reads theme from st.session_state['theme']."""
+    theme_vars = LIGHT_THEME if st.session_state.get("theme") == "light" else DARK_THEME
+    st.markdown(
+        f"<style>{theme_vars}{SHARED_CSS}</style>",
+        unsafe_allow_html=True,
+    )
+
+
+def theme_toggle():
+    """
+    Render a compact sun/moon toggle in the sidebar.
+    Call this inside the sidebar block after navigation.
+    """
+    is_light = st.session_state.get("theme") == "light"
+    label    = "☀️ Light Mode" if not is_light else "🌙 Dark Mode"
+    if st.button(label, key="theme_toggle_btn", use_container_width=True):
+        st.session_state["theme"] = "light" if not is_light else "dark"
+        st.rerun()
