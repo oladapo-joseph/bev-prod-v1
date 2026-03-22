@@ -236,121 +236,199 @@ def render():
             lp          = all_runs_day[all_runs_day["line_number"] == ln] if not all_runs_day.empty else pd.DataFrame()
             lf_unlinked = unlinked_day[unlinked_day["line_number"] == ln] if not unlinked_day.empty else pd.DataFrame()
 
+            # Active runs on this line
+            lp_open   = lp[lp["status"] == "open"]   if not lp.empty else pd.DataFrame()
+            lp_closed = lp[lp["status"] == "closed"] if not lp.empty else pd.DataFrame()
+
             if lp.empty and lf_unlinked.empty:
                 st.markdown(
-                    f"<div class='metric-card' style='padding:12px 20px;opacity:.3'>"
-                    f"<span class='line-badge'>LINE {ln}</span>"
-                    f"<span style='color:var(--muted);font-size:.82rem;margin-left:12px'>No activity</span>"
-                    f"</div>",
+                    "<div class='metric-card' style='padding:12px 20px;opacity:.3'>"
+                    "<span class='line-badge'>LINE %d</span>"
+                    "<span style='color:var(--muted);font-size:.82rem;margin-left:12px'>No activity</span>"
+                    "</div>" % ln,
                     unsafe_allow_html=True,
                 )
                 continue
 
-            for _, row in lp.iterrows():
-                is_open  = str(row.get("status", "")).lower() == "open"
-                s_color  = "var(--accent)" if is_open else "var(--muted)"
-                s_bg     = "#00e5a012"      if is_open else "transparent"
-                s_border = "var(--accent)"  if is_open else "var(--border)"
-                s_label  = "\u25b6 RUNNING" if is_open else "\u2713 CLOSED"
-
-                prod = _safe_int(row, "packs_produced")
-                tgt  = _safe_int(row, "packs_target")
-                e    = efficiency(prod, tgt) if (not is_open and tgt > 0) else None
-                ecol = eff_color(e) if e is not None else "var(--muted)"
-
-                rid  = row.get("id")
-                rf   = df_f[df_f["production_run_id"] == rid] if (rid is not None and not df_f.empty and "production_run_id" in df_f.columns) else pd.DataFrame()
-                fdt  = int(rf["downtime_minutes"].sum()) if not rf.empty else 0
-                fc2  = len(rf)
-
-                actual_hrs     = _safe_float(row, "actual_time_hrs")
-                run_start_disp = str(row.get("run_start", ""))[:16]
-                run_end_disp   = str(row.get("run_end",   ""))[:16] if not is_open else "\u2014"
-
-                # Cross-shift badge
+            # ── Active run cards (no grouping — show directly) ────────────────
+            for _, row in lp_open.iterrows():
                 opened_shift = str(row.get("shift", "")).split("(")[0].strip()
-                closed_shift = str(row.get("closed_shift", "") or "").split("(")[0].strip()
-                cross_badge  = ""
-                if closed_shift and closed_shift != opened_shift:
-                    cross_badge = (
-                        f"<span style='font-size:.65rem;color:var(--manager);background:#7c6ff720;"
-                        f"border:1px solid var(--manager);border-radius:4px;padding:1px 7px;margin-left:6px'>"
-                        f"\U0001f504 {opened_shift} \u2192 {closed_shift}</span>"
+                run_start_s  = str(row.get("run_start", ""))[:16]
+                prod_name_s  = _safe(row, "product_name")
+                flavor_s     = _safe(row, "flavor")
+                pack_s       = _safe(row, "pack_size")
+                pkg_s        = _safe(row, "packaging")
+                tgt          = _safe_int(row, "packs_target")
+                try:
+                    elapsed = (datetime.now() - datetime.strptime(run_start_s, "%Y-%m-%d %H:%M")).total_seconds() / 3600
+                    elapsed_str = "%.1fh elapsed" % elapsed
+                except Exception:
+                    elapsed_str = "\u2014"
+                st.markdown(
+                    "<div style='background:#00e5a012;border:1px solid var(--accent);"
+                    "border-radius:12px;padding:14px 20px;margin-bottom:8px;"
+                    "position:relative;overflow:hidden'>"
+                    "<div style='position:absolute;top:0;left:0;width:4px;height:100%%;background:var(--accent)'></div>"
+                    "<div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap'>"
+                    "<span class='line-badge'>LINE %d</span>"
+                    "<span style='font-size:.9rem;font-weight:500'>%s %s &middot; %s %s</span>"
+                    "<span style='color:var(--muted);font-size:.75rem'>%s</span>"
+                    "<span style='margin-left:auto;font-family:Space Mono,monospace;"
+                    "font-size:.72rem;font-weight:700;color:var(--accent)'>\u25b6 RUNNING</span>"
+                    "</div>"
+                    "<div style='display:flex;gap:20px;font-size:.78rem;color:var(--muted);flex-wrap:wrap'>"
+                    "<span>Started: %s</span>"
+                    "<span style='color:var(--accent)'>%s</span>"
+                    "<span>Target: %s cases</span>"
+                    "</div></div>" % (
+                        ln, prod_name_s, flavor_s, pack_s, pkg_s,
+                        opened_shift, run_start_s, elapsed_str,
+                        "{:,}".format(tgt),
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+            # ── Closed runs — line summary + per-run expanders ────────────────
+            if not lp_closed.empty:
+                ln_produced   = int(lp_closed["packs_produced"].sum())
+                ln_target     = int(lp_closed["packs_target"].sum())
+                ln_eff        = efficiency(ln_produced, ln_target)
+                ln_col        = eff_color(ln_eff)
+                ln_run_ids    = lp_closed["id"].tolist()
+                lf_all        = df_f[df_f["production_run_id"].isin(ln_run_ids)] if not df_f.empty and "production_run_id" in df_f.columns else pd.DataFrame()
+                ln_fdt        = int(lf_all["downtime_minutes"].sum()) if not lf_all.empty else 0
+                ln_fc         = len(lf_all)
+                ln_run_hrs    = sum(_safe_float(r, "actual_time_hrs") for _, r in lp_closed.iterrows())
+                ln_plan_hrs   = sum(_safe_float(r, "plan_time_hrs") or 8.0 for _, r in lp_closed.iterrows())
+                ln_rejected   = sum(_safe_int(r, "packs_rejected") for _, r in lp_closed.iterrows())
+                ln_oee        = calc_oee(ln_plan_hrs, ln_run_hrs, ln_produced, ln_target, ln_rejected)
+                n_runs        = len(lp_closed)
+                fdt_col       = "var(--red)" if ln_fdt > 30 else ("var(--warn)" if ln_fdt > 0 else "var(--accent)")
+                fc_col        = "var(--red)" if ln_fc > 5   else ("var(--warn)" if ln_fc > 0 else "var(--accent)")
+                ln_run_str    = "%.2fh" % ln_run_hrs if ln_run_hrs > 0 else "\u2014"
+
+                # Line summary card
+                st.markdown(
+                    "<div style='background:var(--surface);border:1px solid var(--border);"
+                    "border-radius:12px;padding:16px 20px;margin-bottom:4px;"
+                    "position:relative;overflow:hidden'>"
+                    "<div style='position:absolute;top:0;left:0;width:4px;height:100%%;background:%s'></div>"
+                    "<div style='display:flex;align-items:center;gap:12px;margin-bottom:12px'>"
+                    "<span class='line-badge'>LINE %d</span>"
+                    "<span style='font-size:.78rem;color:var(--muted)'>%d run(s) completed%s</span>"
+                    "</div>"
+                    "<div style='display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px'>"
+                    "<div><div style='font-family:Space Mono,monospace;font-size:1.4rem;color:%s'>%s%%</div>"
+                    "<div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Line Efficiency</div></div>"
+                    "<div><div style='font-family:Space Mono,monospace;font-size:1.4rem;color:var(--text)'>%s</div>"
+                    "<div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Total Produced</div></div>"
+                    "<div><div style='font-family:Space Mono,monospace;font-size:1.4rem;color:var(--muted)'>%s</div>"
+                    "<div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Total Target</div></div>"
+                    "<div><div style='font-family:Space Mono,monospace;font-size:1.4rem;color:var(--text)'>%s</div>"
+                    "<div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Total Run Time</div></div>"
+                    "<div><div style='font-family:Space Mono,monospace;font-size:1.4rem;color:%s'>%d min</div>"
+                    "<div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Total Downtime</div></div>"
+                    "<div><div style='font-family:Space Mono,monospace;font-size:1.4rem;color:%s'>%d</div>"
+                    "<div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Total Faults</div></div>"
+                    "</div>"
+                    "<div style='height:6px;background:var(--border);border-radius:3px'>"
+                    "<div style='height:6px;background:%s;border-radius:3px;width:%d%%'></div></div>"
+                    "</div>" % (
+                        ln_col,
+                        ln, n_runs,
+                        " (+ 1 running)" if not lp_open.empty else "",
+                        ln_col, ln_eff,
+                        "{:,}".format(ln_produced),
+                        "{:,}".format(ln_target),
+                        ln_run_str,
+                        fdt_col, ln_fdt,
+                        fc_col,  ln_fc,
+                        ln_col,  min(ln_eff, 100),
+                    ),
+                    unsafe_allow_html=True,
+                )
+                st.markdown(oee_badge(ln_oee), unsafe_allow_html=True)
+
+                # Per-run expanders
+                for _, row in lp_closed.iterrows():
+                    rid          = row.get("id")
+                    prod_name_s  = _safe(row, "product_name")
+                    flavor_s     = _safe(row, "flavor")
+                    pack_s       = _safe(row, "pack_size")
+                    pkg_s        = _safe(row, "packaging")
+                    opened_shift = str(row.get("shift", "")).split("(")[0].strip()
+                    closed_shift = str(row.get("closed_shift", "") or "").split("(")[0].strip()
+                    cross_tag    = " \U0001f504 %s\u2192%s" % (opened_shift, closed_shift) if (closed_shift and closed_shift != opened_shift) else ""
+                    run_start_s  = str(row.get("run_start", ""))[:16]
+                    run_end_s    = str(row.get("run_end",   ""))[:16]
+                    produced     = _safe_int(row, "packs_produced")
+                    target       = _safe_int(row, "packs_target")
+                    actual_hrs   = _safe_float(row, "actual_time_hrs")
+                    plan_hrs_m   = _safe_float(row, "plan_time_hrs") or 8.0
+                    rejected_m   = _safe_int(row, "packs_rejected")
+                    handover     = _safe(row, "handover_note")
+                    e            = efficiency(produced, target)
+                    col          = eff_color(e)
+                    oee_m        = calc_oee(plan_hrs_m, actual_hrs, produced, target, rejected_m)
+
+                    rf  = df_f[df_f["production_run_id"] == rid] if (rid is not None and not df_f.empty and "production_run_id" in df_f.columns) else pd.DataFrame()
+                    fdt = int(rf["downtime_minutes"].sum()) if not rf.empty else 0
+                    fc2 = len(rf)
+
+                    exp_label = "%s %s · %s %s · %s%s | %s%% | %s cases | %s\u2192%s" % (
+                        prod_name_s, flavor_s, pack_s, pkg_s,
+                        opened_shift, cross_tag, e,
+                        "{:,}".format(produced),
+                        run_start_s, run_end_s,
                     )
-
-                if is_open and run_start_disp:
-                    try:
-                        elapsed = (datetime.now() - datetime.strptime(run_start_disp, "%Y-%m-%d %H:%M")).total_seconds() / 3600
-                        dur_disp, dur_label = f"{elapsed:.1f}h", "Elapsed"
-                    except Exception:
-                        dur_disp, dur_label = "\u2014", "Elapsed"
-                else:
-                    dur_disp  = f"{actual_hrs:.2f}h" if actual_hrs else "\u2014"
-                    dur_label = "Run Time"
-
-                eff_disp  = f"{e}%"    if e is not None else "\u2014"
-                prod_disp = f"{prod:,}" if prod > 0    else "\u2014"
-                bar_html  = (
-                    f"<div style='height:5px;background:var(--border);border-radius:3px;margin-top:8px'>"
-                    f"<div style='height:5px;background:{ecol};border-radius:3px;width:{min(e or 0,100)}%'>"
-                    f"</div></div>"
-                ) if not is_open else ""
-                handover_note = row.get("handover_note") or ""
-                handover_html = (
-                    f"<div style='margin-top:8px;font-size:.74rem;color:var(--muted)'>"
-                    f"<b style='color:var(--text)'>Handover:</b> {handover_note}</div>"
-                ) if handover_note else ""
-
-                fdt_color = "var(--red)" if fdt > 30 else ("var(--warn)" if fdt > 0 else "var(--accent)")
-                fc2_color = "var(--red)" if fc2 > 2  else ("var(--warn)" if fc2 > 0 else "var(--accent)")
-
-                prod_name_s = _safe(row, "product_name")
-                flavor_s    = _safe(row, "flavor")
-                pack_s      = _safe(row, "pack_size")
-                pkg_s       = _safe(row, "packaging")
-                plan_hrs_m  = _safe_float(row, "plan_time_hrs") or 8.0
-                rejected_m  = _safe_int(row, "packs_rejected")  # _safe_int already guards NaN
-                oee_m       = calc_oee(plan_hrs_m, actual_hrs, prod, tgt, rejected_m) if not is_open else None
-                card_parts  = [
-                    "<div style='background:%s;border:1px solid %s;border-radius:12px;padding:14px 20px;margin-bottom:8px;position:relative;overflow:hidden'>" % (s_bg, s_border),
-                    "<div style='position:absolute;top:0;left:0;width:4px;height:100%%;background:%s'></div>" % s_color,
-                    "<div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap'>",
-                    "<span class='line-badge'>LINE %d</span>" % ln,
-                    "<span style='font-size:.9rem;font-weight:500'>%s %s &middot; %s %s</span>" % (prod_name_s, flavor_s, pack_s, pkg_s),
-                    "<span style='color:var(--muted);font-size:.75rem'>%s</span>" % opened_shift,
-                    cross_badge,
-                    "<span style='margin-left:auto;font-family:Space Mono,monospace;font-size:.72rem;font-weight:700;color:%s'>%s</span>" % (s_color, s_label),
-                    "</div>",
-                    "<div style='display:flex;gap:20px;flex-wrap:wrap;margin-bottom:4px'>",
-                    "<div><div style='font-family:Space Mono,monospace;font-size:1.15rem;color:%s'>%s</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Efficiency</div></div>" % (ecol, eff_disp),
-                    "<div><div style='font-family:Space Mono,monospace;font-size:1.15rem;color:var(--text)'>%s</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Produced</div></div>" % prod_disp,
-                    "<div><div style='font-family:Space Mono,monospace;font-size:1.15rem;color:var(--muted)'>%s</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Target</div></div>" % f"{tgt:,}",
-                    "<div><div style='font-family:Space Mono,monospace;font-size:1.15rem;color:var(--text)'>%s</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>%s</div></div>" % (dur_disp, dur_label),
-                    "<div><div style='font-family:Space Mono,monospace;font-size:1.15rem;color:%s'>%dm</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Downtime</div></div>" % (fdt_color, fdt),
-                    "<div><div style='font-family:Space Mono,monospace;font-size:1.15rem;color:%s'>%d</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Faults</div></div>" % (fc2_color, fc2),
-                    "<div><div style='font-size:.7rem;color:var(--muted)'>%s</div><div style='font-size:.7rem;color:var(--muted)'>%s</div><div style='font-size:.62rem;color:var(--muted);text-transform:uppercase'>Start / End</div></div>" % (run_start_disp, run_end_disp),
-                    "</div>",
-                    bar_html,
-                    handover_html,
-                    "</div>",
-                ]
-                oee_html = oee_badge(oee_m) if oee_m is not None else ""
-                st.markdown("".join(card_parts) + oee_html, unsafe_allow_html=True)
-
-                if not rf.empty:
-                    cols_rf = [c for c in ["fault_time","fault_machine","fault_detail","downtime_minutes","reported_by"] if c in rf.columns]
-                    with st.expander(f"  \u2937 {fc2} linked fault(s) \u2014 {fdt} min"):
-                        st.dataframe(
-                            rf[cols_rf].rename(columns={
+                    with st.expander(exp_label):
+                        fdt_col2 = "var(--red)" if fdt > 30 else ("var(--warn)" if fdt > 0 else "var(--accent)")
+                        fc2_col  = "var(--red)" if fc2 > 2  else ("var(--warn)" if fc2 > 0 else "var(--accent)")
+                        st.markdown(
+                            "<div style='display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px'>"
+                            "<div><div style='font-family:Space Mono,monospace;font-size:1.1rem;color:%s'>%s%%</div>"
+                            "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Efficiency</div></div>"
+                            "<div><div style='font-family:Space Mono,monospace;font-size:1.1rem;color:var(--text)'>%s</div>"
+                            "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Produced</div></div>"
+                            "<div><div style='font-family:Space Mono,monospace;font-size:1.1rem;color:var(--muted)'>%s</div>"
+                            "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Target</div></div>"
+                            "<div><div style='font-family:Space Mono,monospace;font-size:1.1rem;color:var(--text)'>%.2fh</div>"
+                            "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Run Time</div></div>"
+                            "<div><div style='font-family:Space Mono,monospace;font-size:1.1rem;color:%s'>%d min</div>"
+                            "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Downtime</div></div>"
+                            "<div><div style='font-family:Space Mono,monospace;font-size:1.1rem;color:%s'>%d</div>"
+                            "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Faults</div></div>"
+                            "</div>" % (
+                                col, e,
+                                "{:,}".format(produced),
+                                "{:,}".format(target),
+                                actual_hrs,
+                                fdt_col2, fdt,
+                                fc2_col,  fc2,
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(oee_badge(oee_m), unsafe_allow_html=True)
+                        if handover:
+                            st.markdown(
+                                "<div style='font-size:.78rem;color:var(--muted);margin-top:6px'>"
+                                "<b style='color:var(--text)'>Handover:</b> %s</div>" % handover,
+                                unsafe_allow_html=True,
+                            )
+                        if not rf.empty:
+                            cols_rf = [c for c in ["fault_time","fault_machine","fault_detail","downtime_minutes","reported_by"] if c in rf.columns]
+                            st.dataframe(rf[cols_rf].rename(columns={
                                 "fault_time":"Time","fault_machine":"Machine",
                                 "fault_detail":"Detail","downtime_minutes":"Downtime (min)",
                                 "reported_by":"Reported By",
-                            }), use_container_width=True, hide_index=True,
-                        )
+                            }), use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("No faults logged for this run.")
 
+            # Unlinked faults for this line
             if not lf_unlinked.empty:
                 ul_dt = int(lf_unlinked["downtime_minutes"].sum())
-                with st.expander(f"  \u26a0\ufe0f Line {ln} \u2014 {len(lf_unlinked)} unlinked fault(s) \u00b7 {ul_dt} min"):
+                with st.expander("  \u26a0\ufe0f Line %d \u2014 %d unlinked fault(s) \u00b7 %d min" % (ln, len(lf_unlinked), ul_dt)):
                     st.dataframe(
                         lf_unlinked.drop(columns=["line_number"], errors="ignore").rename(columns={
                             "fault_time":"Time","fault_machine":"Machine",
@@ -358,6 +436,7 @@ def render():
                             "reported_by":"Reported By",
                         }), use_container_width=True, hide_index=True,
                     )
+            st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
         if not unlinked_day.empty:
             st.markdown("---")

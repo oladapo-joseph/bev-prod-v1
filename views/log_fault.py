@@ -1,13 +1,9 @@
 """
 views/log_fault.py — Log Fault / Downtime
 ------------------------------------------
-Fully independent of production runs.
-Faults are logged with:
-  - line, shift, date
-  - fault_time (when it ACTUALLY happened, not when logged)
-  - machine, detail, downtime, reporter, notes
-production_run_id is NULL and gets backfilled when the run is closed.
-A sidebar badge shows unlinked fault count for awareness.
+Faults are automatically linked to the currently open run on the selected line.
+If no run is open, the fault is saved unlinked with a clear warning.
+The backfill step on run close handles any remaining edge cases.
 """
 
 import streamlit as st
@@ -20,13 +16,13 @@ from components.ui import section_header
 
 def render(username: str, full_name: str):
     st.markdown("# ⚠️ Log Fault / Downtime")
-    section_header("Log faults as they happen — independent of production records")
+    section_header("Faults are auto-linked to the active run on the selected line")
 
     if "fault_form_key" not in st.session_state:
         st.session_state["fault_form_key"] = 0
     ffk = st.session_state["fault_form_key"]
 
-    # ── Context selectors ─────────────────────────────────────────────────────
+    # ── Line & shift selectors ────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
     with c1:
         st.text_input("Date", value=str(date.today()), disabled=True, key=f"fd_{ffk}")
@@ -39,49 +35,56 @@ def render(username: str, full_name: str):
             key=f"fl_{ffk}",
         )
 
-    # ── Show open run on this line (informational only) ───────────────────────
-    if f_shift != "— Select Shift —" and isinstance(f_line, int):
+    # ── Auto-detect open run on this line ────────────────────────────────────
+    active_run_id   = None
+    active_run_info = None
+
+    if isinstance(f_line, int):
         open_run = read_sql(
-            """SELECT id, product_name, flavor, pack_size, packaging, run_start
-               FROM production_runs
-               WHERE record_date=? AND shift=? AND line_number=? AND status='open'
-               ORDER BY run_start DESC""",
-            params=[str(date.today()), f_shift, f_line],
+            "SELECT id, product_name, flavor, pack_size, packaging, shift, run_start "
+            "FROM production_runs "
+            "WHERE line_number=? AND status='open' "
+            "ORDER BY run_start DESC",
+            params=[f_line],
         )
         if not open_run.empty:
-            r = open_run.iloc[0]
+            r               = open_run.iloc[0]
+            active_run_id   = int(r["id"])
+            active_run_info = r
+
+    # ── Status banner ─────────────────────────────────────────────────────────
+    if isinstance(f_line, int):
+        if active_run_info is not None:
+            r = active_run_info
+            prod_str  = "%s %s · %s %s" % (
+                r.get("product_name",""), r.get("flavor","") or "",
+                r.get("pack_size","")  or "", r.get("packaging","") or "",
+            )
+            shift_str = str(r.get("shift","")).split("(")[0].strip()
+            start_str = str(r.get("run_start",""))[:16]
             st.markdown(
-                f"<div style='background:#00e5a010;border:1px solid var(--accent);border-radius:8px;"
-                f"padding:10px 16px;margin-bottom:4px'>"
-                f"<span style='font-size:.75rem;color:var(--accent);font-family:Space Mono,monospace;"
-                f"text-transform:uppercase'>▶ Active run on this line: "
-                f"{r['product_name']} {r.get('flavor','') or ''} "
-                f"{r.get('pack_size','') or ''} — started {r['run_start']}</span><br>"
-                f"<span style='font-size:.72rem;color:var(--muted)'>"
-                f"This fault will be available to link when the run is closed.</span></div>",
+                "<div style='background:#00e5a010;border:1px solid var(--accent);"
+                "border-radius:8px;padding:12px 16px;margin-bottom:8px'>"
+                "<div style='font-size:.75rem;color:var(--accent);font-family:Space Mono,"
+                "monospace;text-transform:uppercase;font-weight:700'>"
+                "▶ Active run detected — fault will be auto-linked</div>"
+                "<div style='font-size:.82rem;color:var(--text);margin-top:4px'>%s</div>"
+                "<div style='font-size:.72rem;color:var(--muted);margin-top:2px'>"
+                "%s · Started %s</div>"
+                "</div>" % (prod_str, shift_str, start_str),
                 unsafe_allow_html=True,
             )
         else:
             st.markdown(
-                "<div style='background:#ffffff08;border:1px solid var(--border);border-radius:8px;"
-                "padding:10px 16px;margin-bottom:4px'>"
-                "<span style='font-size:.75rem;color:var(--muted)'>No active run on this line — "
-                "fault will be saved as unlinked and can be attached when a run is closed.</span></div>",
-                unsafe_allow_html=True,
-            )
-
-        # Unlinked fault count for this line/shift today
-        unlinked_count = read_sql(
-            """SELECT COUNT(*) as cnt FROM fault_records
-               WHERE record_date=? AND shift=? AND line_number=?
-                 AND production_run_id IS NULL""",
-            params=[str(date.today()), f_shift, f_line],
-        )
-        cnt = int(unlinked_count["cnt"].iloc[0]) if not unlinked_count.empty else 0
-        if cnt > 0:
-            st.markdown(
-                f"<div style='font-size:.75rem;color:var(--warn);margin-bottom:12px'>"
-                f"⚠️ {cnt} unlinked fault(s) already logged for this line/shift today.</div>",
+                "<div style='background:#ff475710;border:1px solid var(--warn);"
+                "border-radius:8px;padding:12px 16px;margin-bottom:8px'>"
+                "<div style='font-size:.75rem;color:var(--warn);font-family:Space Mono,"
+                "monospace;text-transform:uppercase;font-weight:700'>"
+                "⚠️ No active run on this line</div>"
+                "<div style='font-size:.78rem;color:var(--muted);margin-top:4px'>"
+                "Fault will be saved unlinked. "
+                "It can be attached manually when a run is closed.</div>"
+                "</div>",
                 unsafe_allow_html=True,
             )
 
@@ -128,62 +131,101 @@ def render(username: str, full_name: str):
     )
     if not f_ready:
         missing = []
-        if f_shift == "— Select Shift —":   missing.append("Shift")
-        if not isinstance(f_line, int):     missing.append("Line Number")
-        if fault_machine in _ph:            missing.append("Fault Machine")
-        if fault_detail in _ph:             missing.append("Fault Detail")
-        if downtime == 0:                   missing.append("Downtime > 0")
-        if not reported_by.strip():         missing.append("Reported By")
+        if f_shift == "— Select Shift —": missing.append("Shift")
+        if not isinstance(f_line, int):   missing.append("Line Number")
+        if fault_machine in _ph:          missing.append("Fault Machine")
+        if fault_detail in _ph:           missing.append("Fault Detail")
+        if downtime == 0:                 missing.append("Downtime > 0")
+        if not reported_by.strip():       missing.append("Reported By")
         st.info(f"Required: {', '.join(missing)}")
 
     if st.button("⚠️  Save Fault", disabled=not f_ready, key=f"fsave_{ffk}"):
         execute(
-            """INSERT INTO fault_records
-               (record_date, shift, line_number, fault_time,
-                fault_machine, fault_detail, downtime_minutes,
-                reported_by, notes, logged_by)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            "INSERT INTO fault_records "
+            "(record_date, shift, line_number, fault_time, "
+            "fault_machine, fault_detail, downtime_minutes, "
+            "reported_by, notes, logged_by, production_run_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (str(date.today()), f_shift, f_line, fault_time_str,
              fault_machine, fault_detail, downtime,
-             reported_by.strip(), notes.strip() or None, username),
+             reported_by.strip(), notes.strip() or None,
+             username, active_run_id),
         )
-        st.success(
-            f"⚠️ Fault saved — {fault_machine} › {fault_detail} | "
-            f"{downtime} min @ {fault_time_str} | Line {f_line} "
-            f"(unlinked — will attach on run close)"
-        )
+
+        if active_run_id:
+            st.success(
+                "⚠️ Fault saved & linked — %s › %s | %d min @ %s | Line %d" % (
+                    fault_machine, fault_detail, downtime, fault_time_str, f_line
+                )
+            )
+        else:
+            st.warning(
+                "⚠️ Fault saved (unlinked) — %s › %s | %d min @ %s | Line %d\n\n"
+                "No active run was found on this line. Attach it when closing a run." % (
+                    fault_machine, fault_detail, downtime, fault_time_str, f_line
+                )
+            )
         st.session_state["fault_form_key"] += 1
         st.rerun()
 
-    # ── Today's fault log for this line ──────────────────────────────────────
-    if f_shift != "— Select Shift —" and isinstance(f_line, int):
+    # ── Today's fault log for this line (ALL shifts) ─────────────────────────
+    if isinstance(f_line, int):
         st.markdown("---")
-        section_header(f"Today's faults — Line {f_line} · {f_shift.split('(')[0].strip()}")
+        section_header("All faults today — Line %d (all shifts)" % f_line)
         todays = read_sql(
-            """SELECT fault_time, fault_machine, fault_detail,
-                      downtime_minutes, reported_by,
-                      CASE WHEN production_run_id IS NULL THEN 'Unlinked' ELSE 'Linked' END as status
-               FROM fault_records
-               WHERE record_date=? AND shift=? AND line_number=?
-               ORDER BY fault_time, created_at""",
-            params=[str(date.today()), f_shift, f_line],
+            "SELECT fault_time, shift, fault_machine, fault_detail, "
+            "downtime_minutes, reported_by, "
+            "CASE WHEN production_run_id IS NULL THEN 'Unlinked' ELSE 'Linked' END as status "
+            "FROM fault_records "
+            "WHERE record_date=? AND line_number=? "
+            "ORDER BY shift, fault_time, created_at",
+            params=[str(date.today()), f_line],
         )
         if todays.empty:
-            st.info("No faults logged yet for this line/shift today.")
+            st.info("No faults logged yet for this line today.")
         else:
             total_dt = int(todays["downtime_minutes"].sum())
+            linked   = int((todays["status"] == "Linked").sum())
+            unlinked = int((todays["status"] == "Unlinked").sum())
+
+            # Summary strip
             st.markdown(
-                f"<div style='font-family:Space Mono,monospace;font-size:.8rem;"
-                f"color:var(--muted);margin-bottom:8px'>"
-                f"Total downtime: <span style='color:var(--warn)'>{total_dt} min</span> "
-                f"across {len(todays)} fault(s)</div>",
+                "<div style='font-family:Space Mono,monospace;font-size:.78rem;"
+                "color:var(--muted);margin-bottom:12px'>"
+                "Total downtime: <span style='color:var(--warn)'>%d min</span>"
+                " &nbsp;|&nbsp; %d fault(s)"
+                " &nbsp;|&nbsp; <span style='color:var(--accent)'>%d linked</span>"
+                " &nbsp;<span style='color:var(--warn)'>%d unlinked</span>"
+                "</div>" % (total_dt, len(todays), linked, unlinked),
                 unsafe_allow_html=True,
             )
-            st.dataframe(
-                todays.rename(columns={
-                    "fault_time": "Time", "fault_machine": "Machine",
-                    "fault_detail": "Detail", "downtime_minutes": "Downtime (min)",
-                    "reported_by": "Reported By", "status": "Status",
-                }),
-                use_container_width=True, hide_index=True,
-            )
+
+            # Group by shift so incoming lead can clearly see each shift's issues
+            todays["shift_short"] = todays["shift"].str.split("(").str[0].str.strip()
+            for shift_name, group in todays.groupby("shift_short", sort=False):
+                shift_dt  = int(group["downtime_minutes"].sum())
+                shift_fc  = len(group)
+                dt_col    = "var(--red)" if shift_dt > 30 else ("var(--warn)" if shift_dt > 0 else "var(--accent)")
+                st.markdown(
+                    "<div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;margin-top:10px'>"
+                    "<span style='font-family:Space Mono,monospace;font-size:.72rem;"
+                    "color:var(--muted);text-transform:uppercase;letter-spacing:1px'>%s</span>"
+                    "<span style='font-size:.72rem;color:%s'>%d min downtime</span>"
+                    "<span style='font-size:.72rem;color:var(--muted)'>%d fault(s)</span>"
+                    "</div>" % (shift_name, dt_col, shift_dt, shift_fc),
+                    unsafe_allow_html=True,
+                )
+                display_cols = ["fault_time", "fault_machine", "fault_detail",
+                                "downtime_minutes", "reported_by", "status"]
+                display_cols = [c for c in display_cols if c in group.columns]
+                st.dataframe(
+                    group[display_cols].rename(columns={
+                        "fault_time":       "Time",
+                        "fault_machine":    "Machine",
+                        "fault_detail":     "Detail",
+                        "downtime_minutes": "Downtime (min)",
+                        "reported_by":      "Reported By",
+                        "status":           "Status",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
