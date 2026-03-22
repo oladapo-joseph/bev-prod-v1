@@ -31,35 +31,40 @@ def calc_oee(
     packs_rejected: int,
 ) -> dict:
     """
-    Returns a dict with availability, performance, quality, oee (all 0-100).
-    Formula:
-      Availability = actual_hrs / plan_hrs
-      Ideal Rate   = packs_target / plan_hrs  (cases/hr at full speed)
-      Performance  = packs_produced / (actual_hrs * ideal_rate)
-      Quality      = (packs_produced - packs_rejected) / packs_produced
-      OEE          = Availability * Performance * Quality
+    OEE = Performance × Quality   (Availability = 100% by design)
+
+    Since plan_time = actual_time for each run, Availability is always 1.0.
+    This means OEE reflects purely how fast the line ran vs its ideal rate
+    and what fraction of output was good — which is the meaningful measure
+    for a bottling line where downtime is tracked separately.
+
+    Ideal Rate  = packs_target / actual_hrs  (cases/hr at full speed)
+    Performance = packs_produced / (actual_hrs × ideal_rate)
+                = packs_produced / packs_target   (simplifies cleanly)
+    Quality     = (packs_produced - packs_rejected) / packs_produced
+    OEE         = Performance × Quality
     """
-    if plan_hrs <= 0:
-        return dict(availability=0.0, performance=0.0, quality=0.0, oee=0.0)
+    if actual_hrs <= 0 or packs_target <= 0:
+        return dict(availability=100.0, performance=0.0, quality=0.0, oee=0.0)
 
-    availability = min(actual_hrs / plan_hrs, 1.0)
+    # Availability always 100% (plan = actual by design)
+    availability = 1.0
 
-    ideal_rate = packs_target / plan_hrs if plan_hrs > 0 else 0
-    if ideal_rate > 0 and actual_hrs > 0:
-        performance = min(packs_produced / (actual_hrs * ideal_rate), 1.0)
-    else:
-        performance = 0.0
+    # Performance: how much was produced vs what the line should have produced
+    # Using packs_target as the ideal output for the run duration
+    performance = min(packs_produced / packs_target, 1.0)
 
+    # Quality: fraction of good (non-rejected) output
     good_packs = max(packs_produced - packs_rejected, 0)
     quality = (good_packs / packs_produced) if packs_produced > 0 else 0.0
 
     oee = availability * performance * quality
 
     return dict(
-        availability = round(availability * 100, 1),
-        performance  = round(performance  * 100, 1),
-        quality      = round(quality      * 100, 1),
-        oee          = round(oee          * 100, 1),
+        availability = 100.0,
+        performance  = round(performance * 100, 1),
+        quality      = round(quality     * 100, 1),
+        oee          = round(oee         * 100, 1),
     )
 
 
@@ -71,30 +76,38 @@ def oee_color(oee: float) -> str:
 
 
 def oee_badge(oee_dict: dict) -> str:
-    """Render a compact OEE breakdown badge as HTML string."""
+    """
+    Render OEE breakdown badge. Availability is omitted since it is
+    always 100% by design (plan = actual). Shows OEE, Performance, Quality.
+    """
     col = oee_color(oee_dict["oee"])
+    perf_col = oee_color(oee_dict["performance"])
+    qual_col = "var(--accent)" if oee_dict["quality"] >= 99 else ("var(--warn)" if oee_dict["quality"] >= 95 else "var(--red)")
     return (
-        "<div style='display:flex;gap:16px;flex-wrap:wrap;align-items:center;"
+        "<div style='display:flex;gap:20px;flex-wrap:wrap;align-items:center;"
         "background:var(--surface2);border:1px solid var(--border);"
-        "border-radius:8px;padding:10px 14px;margin-top:8px'>"
+        "border-radius:8px;padding:10px 16px;margin-top:8px'>"
+        # OEE — headline figure
         "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:1.3rem;"
+        "<div style='font-family:Space Mono,monospace;font-size:1.25rem;"
         "font-weight:700;color:%s'>%s%%</div>"
         "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase;"
         "letter-spacing:.8px'>OEE</div></div>"
         "<div style='width:1px;background:var(--border);align-self:stretch'></div>"
+        # Performance
         "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:var(--text)'>%s%%</div>"
-        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Availability</div></div>"
-        "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:var(--text)'>%s%%</div>"
+        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:%s'>%s%%</div>"
         "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Performance</div></div>"
+        # Quality
         "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:var(--text)'>%s%%</div>"
+        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:%s'>%s%%</div>"
         "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Quality</div></div>"
         "</div>"
-    ) % (col, oee_dict["oee"], oee_dict["availability"],
-         oee_dict["performance"], oee_dict["quality"])
+    ) % (
+        col, oee_dict["oee"],
+        perf_col, oee_dict["performance"],
+        qual_col, oee_dict["quality"],
+    )
 
 
 # ── Card components ───────────────────────────────────────────────────────────
