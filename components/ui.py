@@ -109,10 +109,16 @@ def kpi_card(value, label: str, cls: str = "", color: str = None):
 
 
 def kpi_mini(value, label: str, cls: str = ""):
+    color = (
+        "var(--red)"    if cls == "danger" else
+        "var(--warn)"   if cls == "warn"   else
+        "var(--accent)"
+    )
     st.markdown(
         f"<div class='kpi-mini'>"
         f"<span class='kpi-mini-label'>{label}</span>"
-        f"<span class='kpi-mini-val {cls}'>{value}</span></div>",
+        f"<span style='font-family:Space Mono,monospace;font-size:.95rem;"
+        f"font-weight:700;color:{color}'>{value}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -288,25 +294,25 @@ SHARED_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
 /* ── Base & Streamlit chrome ── */
+/* Only set background + font on containers — NOT color, to avoid overriding inline styles */
 html,body,[data-testid="stAppViewContainer"],
 [data-testid="stApp"],
 .main, .block-container,
 [data-testid="stVerticalBlock"],
 [data-testid="stHorizontalBlock"]{
     background-color:var(--bg)!important;
-    color:var(--text)!important;
     font-family:'DM Sans',sans-serif!important;
 }
-[data-testid="stSidebar"]{background-color:var(--surface)!important;border-right:1px solid var(--border);}
-[data-testid="stSidebar"] *{color:var(--text)!important;}
+/* Set default text color only on the root — inline style= on children will win */
+html, body { color:var(--text)!important; }
+[data-testid="stSidebar"]{background-color:var(--surface)!important;border-right:1px solid var(--border)!important;}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,[data-testid="stSidebar"] label,[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,[data-testid="stSidebar"] [data-testid="stRadio"] label,[data-testid="stSidebar"] [data-testid="stRadio"] p{color:var(--text)!important;}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"],[data-testid="stSidebar"] section{background-color:var(--surface)!important;}
 
-/* ── All text elements ── */
-p, span, div, li, label, small,
-[data-testid="stMarkdownContainer"],
-[data-testid="stMarkdownContainer"] p,
-[data-testid="stMarkdownContainer"] span,
-[data-testid="stMarkdownContainer"] li,
-.stMarkdown, .stMarkdown p, .stMarkdown span{
+/* ── Streamlit markdown text only — no generic div/span override ── */
+[data-testid="stMarkdownContainer"] > p,
+[data-testid="stMarkdownContainer"] > ul > li,
+[data-testid="stMarkdownContainer"] > ol > li{
     color:var(--text)!important;
 }
 
@@ -409,6 +415,9 @@ h1,h2,h3,h4,h5,h6{
 div[data-testid="stTab"] button{font-family:'Space Mono',monospace!important;font-size:0.75rem!important;}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
 .chart-title{font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;}
+/* Logout button override */
+.logout-btn > button{background:#ff475720!important;color:var(--red)!important;border:1px solid var(--red)!important;font-family:'Space Mono',monospace!important;font-size:0.78rem!important;font-weight:700!important;padding:6px 16px!important;border-radius:8px!important;width:100%!important;transition:all 0.2s!important;}
+.logout-btn > button:hover{background:var(--red)!important;color:#fff!important;}
 """
 
 

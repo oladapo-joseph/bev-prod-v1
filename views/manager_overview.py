@@ -179,7 +179,7 @@ def render():
     if plant_oee["oee"] > 0:
         oee_col = oee_color(plant_oee["oee"])
         oee_bar = (
-            "<div style='background:var(--surface);border:1px solid var(--border);"
+            "<br> <div style='background:var(--surface);border:1px solid var(--border);"
             "border-radius:10px;padding:14px 20px;margin-bottom:16px;"
             "display:flex;gap:32px;align-items:center;flex-wrap:wrap'>"
             "<div style='font-family:Space Mono,monospace;font-size:.65rem;"

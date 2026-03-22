@@ -1,5 +1,5 @@
 """
-app.py — Ritefoods Limited entrypoint
+app.py — Ritefoods Limited Production Management System
 Run with: streamlit run app.py
 """
 
@@ -7,15 +7,14 @@ import streamlit as st
 from datetime import date
 
 st.set_page_config(
-    page_title="Ritefoods Limited – Bottling Production",
+    page_title="Ritefoods Limited — Production",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Local imports (after page config)
-from db   import init_db
-from auth import authenticate, require_login, current_user, logout
+from db    import init_db
+from auth  import authenticate, require_login, current_user, logout
 from config import read_sql
 from components.ui import inject_css, kpi_mini, efficiency, theme_toggle
 from data.reference import LINES, SHIFTS
@@ -32,7 +31,7 @@ inject_css()
 init_db()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LOGIN — full-page two-column layout, no scroll
+# LOGIN
 # ══════════════════════════════════════════════════════════════════════════════
 if not require_login():
     st.markdown("""
@@ -43,12 +42,9 @@ if not require_login():
         padding: 0 !important; max-width: 100% !important;
     }
     .stApp { overflow: hidden; }
-
     .lp-shell {
-        position: fixed; inset: 0;
-        display: flex; z-index: 0;
-        background: #0d0f14;
-        font-family: 'DM Sans', sans-serif;
+        position: fixed; inset: 0; display: flex; z-index: 0;
+        background: #0d0f14; font-family: 'DM Sans', sans-serif;
     }
     .lp-left { flex: 0 0 58%; position: relative; overflow: hidden; }
     .lp-left img {
@@ -70,42 +66,23 @@ if not require_login():
         color:#fff; line-height:1.15; margin-bottom:14px;
     }
     .lp-headline span { color:#00e5a0; }
-    .lp-sub {
-        font-size:0.92rem; color:#ffffffaa;
-        max-width:380px; line-height:1.75; margin-bottom:38px;
-    }
-    .lp-stats {
-        display:flex; gap:40px;
-        padding-top:26px; border-top:1px solid #ffffff15;
-    }
-    .lp-stat-val {
-        font-family:'Space Mono',monospace; font-size:1.6rem;
-        font-weight:700; color:#00e5a0; line-height:1;
-    }
-    .lp-stat-lbl {
-        font-size:0.63rem; color:#ffffff55;
-        text-transform:uppercase; letter-spacing:1.2px; margin-top:5px;
-    }
-    .lp-right {
-        flex: 0 0 42%;
-        background: #161922;
-        border-left: 1px solid #252a35;
-    }
+    .lp-sub { font-size:0.92rem; color:#ffffffaa; max-width:380px; line-height:1.75; margin-bottom:38px; }
+    .lp-stats { display:flex; gap:40px; padding-top:26px; border-top:1px solid #ffffff15; }
+    .lp-stat-val { font-family:'Space Mono',monospace; font-size:1.6rem; font-weight:700; color:#00e5a0; line-height:1; }
+    .lp-stat-lbl { font-size:0.63rem; color:#ffffff55; text-transform:uppercase; letter-spacing:1.2px; margin-top:5px; }
+    .lp-right { flex: 0 0 42%; background: #161922; border-left: 1px solid #252a35; }
     </style>
-
     <div class="lp-shell">
       <div class="lp-left">
         <img src="https://images.unsplash.com/photo-1565514158740-064f34bd6cfd?w=1400&q=80"
              alt="Bottling production line"/>
         <div class="lp-left-overlay">
-          <!-- TOP: branding -->
           <div>
             <div class="lp-eyebrow">🏭 Ritefoods Limited</div>
             <div style="font-size:0.78rem;color:#ffffffaa;max-width:300px;line-height:1.6;">
-              Bottling Production Management System
+              Production Management System
             </div>
           </div>
-          <!-- MIDDLE: headline + sub -->
           <div>
             <div class="lp-headline">Real-time<br>Production<br><span>Intelligence</span></div>
             <div class="lp-sub">
@@ -113,20 +90,10 @@ if not require_login():
               shift by shift, line by line.
             </div>
           </div>
-          <!-- BOTTOM: stats -->
           <div class="lp-stats">
-            <div>
-              <div class="lp-stat-val">8</div>
-              <div class="lp-stat-lbl">Production Lines</div>
-            </div>
-            <div>
-              <div class="lp-stat-val">3</div>
-              <div class="lp-stat-lbl">Shifts / Day</div>
-            </div>
-            <div>
-              <div class="lp-stat-val">Live</div>
-              <div class="lp-stat-lbl">Efficiency Tracking</div>
-            </div>
+            <div><div class="lp-stat-val">8</div><div class="lp-stat-lbl">Production Lines</div></div>
+            <div><div class="lp-stat-val">3</div><div class="lp-stat-lbl">Shifts / Day</div></div>
+            <div><div class="lp-stat-val">Live</div><div class="lp-stat-lbl">Efficiency Tracking</div></div>
           </div>
         </div>
       </div>
@@ -134,8 +101,7 @@ if not require_login():
     </div>
     """, unsafe_allow_html=True)
 
-    # Widgets sit in the right 42% column, pulled up into the panel via negative margin
-    _, right_col = st.columns([65, 35])
+    _, right_col = st.columns([58, 42])
     with right_col:
         st.markdown("""
         <div style="margin-top:-96vh; height:100vh; display:flex; flex-direction:column;
@@ -143,7 +109,7 @@ if not require_login():
           <div style="font-family:'Space Mono',monospace; font-size:1.3rem; font-weight:700;
                       color:#00e5a0; margin-bottom:4px;">🏭 Ritefoods Limited</div>
           <div style="font-size:0.76rem; color:#6b7280; margin-bottom:40px;">
-              Bottling Production Management System
+              Production Management System
           </div>
           <div style="font-family:'Space Mono',monospace; font-size:1.2rem; font-weight:700;
                       color:#e8eaf0; margin-bottom:24px;">Sign In</div>
@@ -165,13 +131,11 @@ if not require_login():
                     border:1px solid #252a35; border-radius:8px;
                     font-size:0.74rem; color:#6b7280; line-height:2;">
             <b style="color:#e8eaf0;">Default accounts</b><br>
-            Admin &nbsp;&nbsp;&nbsp;&#8594; <code>admin</code> / <code>admin123</code><br>
+            Admin &#8594; <code>admin</code> / <code>admin123</code><br>
             Manager &#8594; <code>manager1</code> / <code>manager123</code><br>
             Shift Lead &#8594; <code>lead1</code> or <code>lead2</code> / <code>lead123</code>
-        </div>
-        </div>
+        </div></div>
         """, unsafe_allow_html=True)
-
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -186,7 +150,7 @@ with st.sidebar:
     st.markdown("## 🏭 Ritefoods Limited")
     st.markdown(
         f"<div style='margin-bottom:16px'>"
-        f"<div style='font-weight:600;font-size:0.95rem'>{fname}</div>"
+        f"<div style='font-weight:600;font-size:0.95rem;color:var(--text)'>{fname}</div>"
         f"<span class='role-badge role-{role}'>{role.replace('_',' ')}</span>"
         f"</div>",
         unsafe_allow_html=True,
@@ -201,10 +165,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<div class='section-header'>Today at a glance</div>", unsafe_allow_html=True)
 
-    _tp  = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(date.today())])
-    _tf  = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[str(date.today())])
-    _or  = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[str(date.today())])
-    _ul  = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[str(date.today())])
+    _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(date.today())])
+    _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[str(date.today())])
+    _or = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[str(date.today())])
+    _ul = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[str(date.today())])
 
     _packs    = int(_tp["p"].iloc[0])   if _tp["p"].iloc[0]   else 0
     _tgt      = int(_tp["t"].iloc[0])   if _tp["t"].iloc[0]   else 0
@@ -214,17 +178,26 @@ with st.sidebar:
     _open_ct  = int(_or["cnt"].iloc[0]) if _or["cnt"].iloc[0] else 0
     _unlinked = int(_ul["cnt"].iloc[0]) if _ul["cnt"].iloc[0] else 0
 
-    kpi_mini(f"{_packs:,}",   "Cases today")
-    kpi_mini(f"{_eff}%",      "Efficiency",     "warn"   if _eff < 85 else "")
-    kpi_mini(f"{_open_ct}",   "Open runs",      "warn"   if _open_ct > 0 else "")
-    kpi_mini(_fc,             "Faults",         "danger" if _fc > 5 else "warn" if _fc > 2 else "")
-    kpi_mini(f"{_dt}m",       "Downtime",       "warn"   if _dt > 60 else "")
-    kpi_mini(f"{_unlinked}",  "Unlinked faults","warn"   if _unlinked > 0 else "")
+    kpi_mini(f"{_packs:,}",  "Cases today",
+             "warn" if (_tgt > 0 and _eff < 85) else "")
+    kpi_mini(f"{_eff}%",     "Efficiency",
+             "danger" if _eff < 70 else "warn" if _eff < 85 else "")
+    kpi_mini(f"{_open_ct}",  "Open runs",
+             "warn" if _open_ct > 0 else "")
+    kpi_mini(f"{_fc}",       "Faults",
+             "danger" if _fc >= 10 else "warn" if _fc > 0 else "")
+    kpi_mini(f"{_dt}m",      "Downtime",
+             "danger" if _dt > 120 else "warn" if _dt > 60 else "")
+    kpi_mini(f"{_unlinked}", "Unlinked faults",
+             "warn" if _unlinked > 0 else "")
 
     st.markdown("---")
     theme_toggle()
-    if st.button("🚪 Logout"):
+    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='logout-btn'>", unsafe_allow_html=True)
+    if st.button("🚪  Logout", use_container_width=True):
         logout()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE ROUTING
