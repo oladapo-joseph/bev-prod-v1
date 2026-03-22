@@ -9,6 +9,7 @@ The backfill step on run close handles any remaining edge cases.
 import streamlit as st
 from datetime import date, datetime
 
+from auth import production_day, current_shift
 from config import read_sql, execute
 from data.reference import LINES, SHIFTS, FAULT_DATA, FAULT_MACHINES
 from components.ui import section_header
@@ -25,7 +26,7 @@ def render(username: str, full_name: str):
     # ── Line & shift selectors ────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.text_input("Date", value=str(date.today()), disabled=True, key=f"fd_{ffk}")
+        st.text_input("Date", value=str(production_day()), disabled=True, key=f"fd_{ffk}")
     with c2:
         f_shift = st.selectbox("Shift", ["— Select Shift —"] + SHIFTS, key=f"fs_{ffk}")
     with c3:
@@ -146,7 +147,7 @@ def render(username: str, full_name: str):
             "fault_machine, fault_detail, downtime_minutes, "
             "reported_by, notes, logged_by, production_run_id) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (str(date.today()), f_shift, f_line, fault_time_str,
+            (str(production_day()), f_shift, f_line, fault_time_str,
              fault_machine, fault_detail, downtime,
              reported_by.strip(), notes.strip() or None,
              username, active_run_id),
@@ -179,7 +180,7 @@ def render(username: str, full_name: str):
             "FROM fault_records "
             "WHERE record_date=? AND line_number=? "
             "ORDER BY shift, fault_time, created_at",
-            params=[str(date.today()), f_line],
+            params=[str(production_day()), f_line],
         )
         if todays.empty:
             st.info("No faults logged yet for this line today.")

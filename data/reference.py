@@ -8,10 +8,17 @@ CAN_BOTTLES_CASE = 24
 
 LINES  = list(range(1, 9))
 SHIFTS = [
-    "Morning (06:00–14:00)",
-    "Afternoon (14:00–22:00)",
-    "Night (22:00–06:00)",
+    "Morning (07:00–14:00)",
+    "Afternoon (14:00–21:00)",
+    "Night (21:00–07:00)",
 ]
+
+# Shift hours for time calculations
+SHIFT_HOURS = {
+    "Morning":   7,
+    "Afternoon": 7,
+    "Night":    10,
+}
 
 # ── Product catalogue ─────────────────────────────────────────────────────────
 PRODUCTS = {

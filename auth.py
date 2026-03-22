@@ -44,3 +44,40 @@ def current_user() -> dict:
 def logout():
     st.session_state.pop("user", None)
     st.rerun()
+
+
+# ── Production day helpers ────────────────────────────────────────────────────
+from datetime import date, datetime, timedelta
+
+def production_day() -> date:
+    """
+    Returns the current PRODUCTION DAY date.
+
+    The production day belongs to the date the Night shift STARTED.
+    Night shift runs 21:00 – 07:00, so between midnight and 07:00
+    we are still in the previous calendar day's production day.
+
+    Examples:
+      2026-03-22 06:30 → production day is 2026-03-21  (Night shift still running)
+      2026-03-22 08:00 → production day is 2026-03-22  (Morning shift)
+      2026-03-22 22:30 → production day is 2026-03-22  (Night shift just started)
+    """
+    now = datetime.now()
+    # Night shift carryover: 00:00 to 07:00 belongs to the previous production day
+    if now.hour < 7:
+        return now.date() - timedelta(days=1)
+    return now.date()
+
+
+def current_shift() -> str:
+    """
+    Returns the current shift name based on wall-clock time.
+      07:00 – 14:00  Morning
+      14:00 – 21:00  Afternoon
+      21:00 – 07:00  Night  (crosses midnight)
+    """
+    from data.reference import SHIFTS
+    h = datetime.now().hour
+    if 7 <= h < 14:  return SHIFTS[0]   # Morning
+    if 14 <= h < 21: return SHIFTS[1]   # Afternoon
+    return SHIFTS[2]                     # Night (21:00–07:00)

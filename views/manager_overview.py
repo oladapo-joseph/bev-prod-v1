@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 
+from auth import production_day, current_shift
 from config import read_sql
 from data.reference import LINES, SHIFTS, FAULT_MACHINES
 from components.ui import efficiency, eff_color, kpi_card, alert_banner, build_report, section_header, calc_oee, oee_badge, oee_color
@@ -76,7 +77,7 @@ def render():
     if not all_faults.empty:
         all_faults["record_date"] = pd.to_datetime(all_faults["record_date"])
 
-    today_str   = str(date.today())
+    today_str   = str(production_day())
     closed_prod = all_prod[all_prod["status"] == "closed"].copy() if not all_prod.empty else pd.DataFrame()
     open_prod   = all_prod[all_prod["status"] == "open"].copy()   if not all_prod.empty else pd.DataFrame()
 
@@ -179,7 +180,7 @@ def render():
     if plant_oee["oee"] > 0:
         oee_col = oee_color(plant_oee["oee"])
         oee_bar = (
-            "<br> <div style='background:var(--surface);border:1px solid var(--border);"
+            "<div style='background:var(--surface);border:1px solid var(--border);"
             "border-radius:10px;padding:14px 20px;margin-bottom:16px;"
             "display:flex;gap:32px;align-items:center;flex-wrap:wrap'>"
             "<div style='font-family:Space Mono,monospace;font-size:.65rem;"

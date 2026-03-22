@@ -13,6 +13,7 @@ Flow:
 import streamlit as st
 from datetime import date, datetime
 
+from auth import production_day, current_shift
 from config import execute, read_sql
 from data.reference import LINES, SHIFTS, PRODUCTS, PRODUCT_NAMES, PRODUCT_NAME_TO_ID, get_target
 from components.ui import efficiency, eff_color, section_header, calc_oee, oee_badge
@@ -34,12 +35,7 @@ def _hrs_between(start_str: str, end_str: str) -> float:
     except Exception:
         return 0.0
 
-def _current_shift() -> str:
-    """Guess the current shift based on the current hour."""
-    h = datetime.now().hour
-    if 6 <= h < 14:  return SHIFTS[0]
-    if 14 <= h < 22: return SHIFTS[1]
-    return SHIFTS[2]
+# current_shift() imported from auth
 
 
 def render(username: str):
@@ -56,7 +52,7 @@ def render(username: str):
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.text_input("Date", value=str(date.today()), disabled=True, key=f"or_date_{ok}")
+            st.text_input("Date", value=str(production_day()), disabled=True, key=f"or_date_{ok}")
         with c2:
             shift = st.selectbox("Shift", ["— Select Shift —"] + SHIFTS, key=f"or_shift_{ok}")
         with c3:
@@ -170,7 +166,7 @@ def render(username: str):
                     "pack_size, packaging, packs_target, run_start, status, "
                     "operator_name, logged_by) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (str(date.today()), shift, line, product_name, flavor,
+                    (str(production_day()), shift, line, product_name, flavor,
                      pack_size, packaging, auto_target, _now_str(), "open",
                      operator.strip(), username),
                 )
@@ -190,7 +186,7 @@ def render(username: str):
             "FROM production_runs "
             "WHERE record_date=? AND status='open' "
             "ORDER BY line_number, run_start",
-            params=[str(date.today())],
+            params=[str(production_day())],
         )
         if open_runs.empty:
             st.info("No open runs at the moment.")
@@ -250,7 +246,7 @@ def render(username: str):
             run = run_map[selected_label]
 
             # Detect cross-shift carryover
-            cur_shift = _current_shift()
+            cur_shift = current_shift()
             is_carryover = run.shift != cur_shift
             if is_carryover:
                 st.markdown(

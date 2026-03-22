@@ -15,6 +15,7 @@ st.set_page_config(
 
 from db    import init_db
 from auth  import authenticate, require_login, current_user, logout
+from auth import production_day, current_shift
 from config import read_sql
 from components.ui import inject_css, kpi_mini, efficiency, theme_toggle
 from data.reference import LINES, SHIFTS
@@ -165,10 +166,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<div class='section-header'>Today at a glance</div>", unsafe_allow_html=True)
 
-    _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(date.today())])
-    _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[str(date.today())])
-    _or = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[str(date.today())])
-    _ul = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[str(date.today())])
+    _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(production_day())])
+    _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[str(production_day())])
+    _or = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[str(production_day())])
+    _ul = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[str(production_day())])
 
     _packs    = int(_tp["p"].iloc[0])   if _tp["p"].iloc[0]   else 0
     _tgt      = int(_tp["t"].iloc[0])   if _tp["t"].iloc[0]   else 0
@@ -195,7 +196,7 @@ with st.sidebar:
     theme_toggle()
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     st.markdown("<div class='logout-btn'>", unsafe_allow_html=True)
-    if st.button("🚪  Logout", use_container_width=True, key="logout-btn", help="Log out of your account"):
+    if st.button("🚪  Logout", use_container_width=True, key='logout-btn'):
         logout()
     st.markdown("</div>", unsafe_allow_html=True)
 
