@@ -1,0 +1,8 @@
+.env
+docker-compose.*
+__pycache__/
+*.pyc
+bev-prod.db
+production.db
+Dockerfile 
+docker-compose.yml
