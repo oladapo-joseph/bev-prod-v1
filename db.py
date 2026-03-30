@@ -106,6 +106,17 @@ RUNS_MIGRATIONS = [
     ("edited_at",       "NVARCHAR(30)"),
 ]
 
+HANDOVERS_DDL = """
+CREATE TABLE shift_handovers (
+    id           INT IDENTITY(1,1) PRIMARY KEY,
+    record_date  NVARCHAR(20)  NOT NULL,
+    shift        NVARCHAR(50)  NOT NULL,
+    submitted_by NVARCHAR(50)  NOT NULL,
+    full_name    NVARCHAR(100) NOT NULL,
+    comments     NVARCHAR(2000),
+    submitted_at NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120))
+)"""
+
 FAULT_MIGRATIONS = [
     ("production_run_id", "INT"),
     ("fault_time",        "NVARCHAR(10)"),
@@ -127,9 +138,10 @@ def init_db():
     c    = conn.cursor()
 
     for table, ddl in [
-        ("users",           USERS_DDL),
-        ("production_runs", PRODUCTION_RUNS_DDL),
-        ("fault_records",   FAULTS_DDL),
+        ("users",            USERS_DDL),
+        ("production_runs",  PRODUCTION_RUNS_DDL),
+        ("fault_records",    FAULTS_DDL),
+        ("shift_handovers",  HANDOVERS_DDL),
     ]:
         if not _table_exists(c, table):
             c.execute(ddl)

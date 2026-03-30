@@ -23,6 +23,7 @@ from data.reference import LINES, SHIFTS
 import views.log_production   as log_production
 import views.log_fault        as log_fault
 import views.shift_dashboard  as shift_dashboard
+import views.shift_handover   as shift_handover
 import views.records          as records
 import views.manager_overview as manager_overview
 import views.user_management  as user_management
@@ -158,7 +159,7 @@ with st.sidebar:
     )
     st.markdown("<div class='section-header'>Navigation</div>", unsafe_allow_html=True)
 
-    lead_pages  = ["📋 Log Production", "⚠️ Log Fault", "📊 Shift Dashboard"] if role in ("shift_lead", "admin") else []
+    lead_pages  = ["📋 Log Production", "⚠️ Log Fault", "📊 Shift Dashboard", "🔄 Shift Handover"] if role in ("shift_lead", "admin") else []
     mgr_pages   = ["🏭 Manager Overview"] if role in ("manager", "admin") else []
     admin_pages = ["👤 User Management"]  if role == "admin" else []
     # Records is available to all authenticated roles
@@ -215,6 +216,7 @@ with st.sidebar:
 if   page == "📋 Log Production":   log_production.render(uname)
 elif page == "⚠️ Log Fault":        log_fault.render(uname, fname)
 elif page == "📊 Shift Dashboard":  shift_dashboard.render()
+elif page == "🔄 Shift Handover":   shift_handover.render(uname, fname)
 elif page == "📁 Records":          records.render()
 elif page == "🏭 Manager Overview": manager_overview.render()
 elif page == "👤 User Management":  user_management.render()

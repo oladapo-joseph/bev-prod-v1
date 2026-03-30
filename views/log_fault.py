@@ -24,11 +24,14 @@ def render(username: str, full_name: str):
     ffk = st.session_state["fault_form_key"]
 
     # ── Line & shift selectors ────────────────────────────────────────────────
+    _cur_shift = current_shift()
+    _shift_idx = SHIFTS.index(_cur_shift) + 1 if _cur_shift in SHIFTS else 0
+
     c1, c2, c3 = st.columns(3)
     with c1:
         st.text_input("Date", value=str(production_day()), disabled=True, key=f"fd_{ffk}")
     with c2:
-        f_shift = st.selectbox("Shift", ["— Select Shift —"] + SHIFTS, key=f"fs_{ffk}")
+        f_shift = st.selectbox("Shift", ["— Select Shift —"] + SHIFTS, index=_shift_idx, key=f"fs_{ffk}")
     with c3:
         f_line = st.selectbox(
             "Line Number", ["— Select Line —"] + LINES,

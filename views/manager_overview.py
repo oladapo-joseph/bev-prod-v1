@@ -14,6 +14,12 @@ from data.reference import LINES, SHIFTS, FAULT_MACHINES
 from components.ui import efficiency, eff_color, kpi_card, alert_banner, build_report, section_header, calc_oee, oee_badge, oee_color
 
 
+@st.cache_data(ttl=30)
+def _load_all_data():
+    """Load production runs and fault records, cached for 30s."""
+    return read_sql("SELECT * FROM production_runs"), read_sql("SELECT * FROM fault_records")
+
+
 def _safe(row, col, default=""):
     """Safely get a column value from a Series row."""
     try:
@@ -64,8 +70,7 @@ def render():
             st.caption(f"Auto-refreshing in {remaining}s · Last updated: {last_refresh.strftime('%H:%M:%S')}")
 
     # ── Load all data ─────────────────────────────────────────────────────────
-    all_prod   = read_sql("SELECT * FROM production_runs")
-    all_faults = read_sql("SELECT * FROM fault_records")
+    all_prod, all_faults = _load_all_data()
 
     if all_prod.empty and all_faults.empty:
         st.warning("No production data available yet.")

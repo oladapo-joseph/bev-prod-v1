@@ -19,6 +19,7 @@ import pandas as pd
 import math
 from datetime import date, datetime
 
+from auth import current_shift
 from config import read_sql
 from data.reference import LINES, SHIFTS, HOURLY_TARGETS
 from components.ui import (
@@ -41,12 +42,14 @@ def render():
     st.markdown("# 📊 Shift Dashboard")
 
     SHIFT_SHORT = ["Morning", "Afternoon", "Night"]
+    _cur_short  = current_shift().split("(")[0].strip()
+    _shift_idx  = SHIFT_SHORT.index(_cur_short) + 1 if _cur_short in SHIFT_SHORT else 0
 
     cd1, cd2 = st.columns([1, 2])
     with cd1:
         dash_date = st.date_input("View Date", value=date.today())
     with cd2:
-        dash_shift = st.selectbox("Filter by Shift", ["All Shifts"] + SHIFT_SHORT)
+        dash_shift = st.selectbox("Filter by Shift", ["All Shifts"] + SHIFT_SHORT, index=_shift_idx)
 
     date_str = str(dash_date)
 

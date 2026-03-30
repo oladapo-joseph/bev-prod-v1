@@ -50,11 +50,14 @@ def render(username: str):
             st.session_state["open_run_key"] = 0
         ok = st.session_state["open_run_key"]
 
+        _cur_shift = current_shift()
+        _shift_idx = SHIFTS.index(_cur_shift) + 1 if _cur_shift in SHIFTS else 0
+
         c1, c2, c3 = st.columns(3)
         with c1:
             st.text_input("Date", value=str(production_day()), disabled=True, key=f"or_date_{ok}")
         with c2:
-            shift = st.selectbox("Shift", ["— Select Shift —"] + SHIFTS, key=f"or_shift_{ok}")
+            shift = st.selectbox("Shift", ["— Select Shift —"] + SHIFTS, index=_shift_idx, key=f"or_shift_{ok}")
         with c3:
             line = st.selectbox(
                 "Line Number", ["— Select Line —"] + LINES,
