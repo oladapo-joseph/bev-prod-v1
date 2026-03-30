@@ -100,6 +100,9 @@ def render(username: str, full_name: str):
     )
     fault_time_str = fault_time_input.strftime("%H:%M") if fault_time_input else None
 
+    if fault_time_input and fault_time_input > datetime.now().time():
+        st.warning("⚠️ Fault time is in the future — please enter the actual time the fault occurred.")
+
     # ── Fault details ─────────────────────────────────────────────────────────
     c4, c5 = st.columns(2)
     with c4:
@@ -125,10 +128,11 @@ def render(username: str, full_name: str):
 
     # ── Validation ────────────────────────────────────────────────────────────
     _ph = ("— Select Machine —", "— Select Detail —", "— Select Machine first —", None)
+    _future_time = bool(fault_time_input and fault_time_input > datetime.now().time())
     f_ready = (
         f_shift != "— Select Shift —" and isinstance(f_line, int) and
         fault_machine not in _ph and fault_detail not in _ph and
-        downtime > 0 and reported_by.strip() != ""
+        downtime > 0 and reported_by.strip() != "" and not _future_time
     )
     if not f_ready:
         missing = []

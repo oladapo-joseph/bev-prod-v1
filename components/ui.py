@@ -11,7 +11,7 @@ from data.reference import LINES
 def efficiency(produced: int, target: int) -> float:
     if target == 0:
         return 0.0
-    return min(round((produced / target) * 100, 1), 100.0)
+    return round((produced / target) * 100, 1)
 
 
 def eff_color(e: float) -> str:
@@ -192,10 +192,15 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
             actual_hrs = round(float(lp["actual_time_hrs"].fillna(0).sum()), 2)
             down_hrs   = round(float(lp["down_time_hrs"].fillna(0).sum()), 2)
         else:
-            shifts_logged = lp["shift"].nunique() if not lp.empty else 0
-            plan_hrs      = round(shifts_logged * 8, 2)
-            down_hrs      = round(int(lf["downtime_minutes"].sum()) / 60, 2) if not lf.empty else 0.0
-            actual_hrs    = round(plan_hrs - down_hrs, 2)
+            from data.reference import SHIFT_HOURS
+            def _shift_hrs(shift_str):
+                for k, v in SHIFT_HOURS.items():
+                    if k.lower() in str(shift_str).lower():
+                        return v
+                return 8  # safe fallback if unknown
+            plan_hrs   = round(sum(_shift_hrs(s) for s in (lp["shift"] if not lp.empty else [])), 2)
+            down_hrs   = round(int(lf["downtime_minutes"].sum()) / 60, 2) if not lf.empty else 0.0
+            actual_hrs = round(plan_hrs - down_hrs, 2)
 
         rows[ln] = dict(
             plan_hrs=plan_hrs, actual_hrs=actual_hrs, down_hrs=down_hrs,
@@ -250,7 +255,7 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
         {_row("Down Time",          "hrs",   "down_hrs",    is_hrs=True, is_neg=True)}
         {_row("Plan Production",    "Packs", "plan_packs")}
         {_row("Actual Production",  "Packs", "actual_packs")}
-        {_row("Production Loss",    "Packs", "loss_packs",  is_neg=True)}
+        {_row("Production Loss / Gain", "Packs", "loss_packs",  is_neg=True)}
         <tr><td class='label'>Line Efficiency</td><td class='uom'>%</td>{eff_cells}</tr>
       </tbody>
     </table></div>"""
@@ -421,8 +426,9 @@ h1,h2,h3,h4,h5,h6{
     background-color:var(--input-bg)!important;border:1px solid var(--border)!important;
     border-radius:8px!important;color:var(--text)!important;font-family:'DM Sans',sans-serif!important;}
 [data-testid="stSelectbox"] > div > div:hover,[data-testid="stTextInput"] input:focus{border-color:var(--accent)!important;}
-.stButton>button{background:var(--accent)!important;color:var(--btn-text)!important;font-family:'Space Mono',monospace!important;font-weight:700!important;border:none!important;border-radius:8px!important;padding:10px 28px!important;font-size:0.85rem!important;letter-spacing:0.5px!important;transition:opacity 0.2s!important;}
+.stButton>button{background:var(--accent)!important;color:var(--btn-text)!important;font-family:'Space Mono',monospace!important;font-weight:700!important;border:none!important;border-radius:8px!important;padding:10px 28px!important;font-size:0.85rem!important;letter-spacing:0.5px!important;transition:all 0.2s!important;}
 .stButton>button:hover{opacity:0.85!important;}
+.stButton>button:disabled,.stButton>button[disabled]{background:var(--border)!important;color:var(--muted)!important;cursor:not-allowed!important;opacity:1!important;}
 .stDataFrame{border-radius:10px;overflow:hidden;}
 .stAlert{border-radius:8px!important;}
 div[data-testid="stTab"] button{font-family:'Space Mono',monospace!important;font-size:0.75rem!important;}

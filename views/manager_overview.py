@@ -54,15 +54,14 @@ def render():
     with col_r2:
         auto_refresh = st.toggle("Auto-refresh (60s)", value=False, key="mgr_refresh")
     if auto_refresh:
-        import time
-        refresh_placeholder = st.empty()
-        refresh_placeholder.markdown(
-            "<div style='font-size:.72rem;color:var(--muted);text-align:right'>"
-            f"Last updated: {datetime.now().strftime('%H:%M:%S')}</div>",
-            unsafe_allow_html=True,
-        )
-        time.sleep(60)
-        st.rerun()
+        last_refresh = st.session_state.get("_mgr_last_refresh")
+        now = datetime.now()
+        if last_refresh is None or (now - last_refresh).total_seconds() >= 60:
+            st.session_state["_mgr_last_refresh"] = now
+            st.rerun()
+        else:
+            remaining = 60 - int((now - last_refresh).total_seconds())
+            st.caption(f"Auto-refreshing in {remaining}s · Last updated: {last_refresh.strftime('%H:%M:%S')}")
 
     # ── Load all data ─────────────────────────────────────────────────────────
     all_prod   = read_sql("SELECT * FROM production_runs")
@@ -358,7 +357,8 @@ def render():
                     pack_s       = _safe(row, "pack_size")
                     pkg_s        = _safe(row, "packaging")
                     opened_shift = str(row.get("shift", "")).split("(")[0].strip()
-                    closed_shift = str(row.get("closed_shift", "") or "").split("(")[0].strip()
+                    _cs_raw      = row.get("closed_shift") or row.get("shift") or ""
+                    closed_shift = str(_cs_raw).split("(")[0].strip()
                     cross_tag    = " \U0001f504 %s\u2192%s" % (opened_shift, closed_shift) if (closed_shift and closed_shift != opened_shift) else ""
                     run_start_s  = str(row.get("run_start", ""))[:16]
                     run_end_s    = str(row.get("run_end",   ""))[:16]
@@ -632,26 +632,42 @@ def render():
         st.markdown("#### Production Report")
         section_header("Line efficiency summary \u2014 matches plant report format")
 
+        SHIFT_SHORT = ["Morning", "Afternoon", "Night"]
+
         rp1, rp2, rp3 = st.columns(3)
         with rp1: r_from  = st.date_input("From",  value=date.today(), key="r_from")
         with rp2: r_to    = st.date_input("To",    value=date.today(), key="r_to")
-        with rp3: r_shift = st.selectbox("Shift", ["All Shifts"] + SHIFTS, key="r_shift")
+        with rp3: r_shift = st.selectbox("Shift", ["All Shifts"] + SHIFT_SHORT, key="r_shift")
 
         if closed_prod.empty:
             st.info("No closed runs to report on yet.")
         else:
-            pmask   = (closed_prod["record_date"] >= str(r_from)) & (closed_prod["record_date"] <= str(r_to))
-            r_prod  = closed_prod[pmask].copy()
+            pmask  = (closed_prod["record_date"] >= pd.Timestamp(r_from)) & \
+                     (closed_prod["record_date"] <= pd.Timestamp(r_to))
+            r_prod = closed_prod[pmask].copy()
 
             r_faults = pd.DataFrame()
             if not all_faults.empty:
-                fmaskr   = (all_faults["record_date"] >= str(r_from)) & (all_faults["record_date"] <= str(r_to))
+                fmaskr   = (all_faults["record_date"] >= pd.Timestamp(r_from)) & \
+                           (all_faults["record_date"] <= pd.Timestamp(r_to))
                 r_faults = all_faults[fmaskr].copy()
 
             if r_shift != "All Shifts":
-                r_prod   = r_prod[r_prod["shift"] == r_shift]
+                # Match on closed_shift if available, otherwise fall back to shift
+                # Compare against short name (first word before the parenthesis)
+                def _shift_matches(val):
+                    return str(val or "").split("(")[0].strip() == r_shift
+
+                closed_shift_col = r_prod.get("closed_shift") if "closed_shift" in r_prod.columns else None
+                if closed_shift_col is not None:
+                    mask = r_prod["closed_shift"].apply(_shift_matches) | \
+                           (r_prod["closed_shift"].isna() & r_prod["shift"].apply(_shift_matches))
+                else:
+                    mask = r_prod["shift"].apply(_shift_matches)
+                r_prod = r_prod[mask]
+
                 if not r_faults.empty and "shift" in r_faults.columns:
-                    r_faults = r_faults[r_faults["shift"] == r_shift]
+                    r_faults = r_faults[r_faults["shift"].apply(_shift_matches)]
 
             period_lbl = f"{r_from} to {r_to}" if r_from != r_to else str(r_from)
             shift_lbl  = r_shift if r_shift != "All Shifts" else "All Shifts"

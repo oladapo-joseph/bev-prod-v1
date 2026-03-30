@@ -1,17 +1,24 @@
 """
 views/records.py — Historical Records
 Two tabs: Production Runs (closed) and Fault Records.
+Manager/admin also get an Edit Records tab.
 """
 
 import streamlit as st
-from config import read_sql
+from datetime import datetime
+from config import read_sql, execute
+from auth import current_user
 from data.reference import LINES, SHIFTS, PRODUCT_NAMES, FAULT_MACHINES
 from components.ui import efficiency, section_header
 
 
 def render():
     st.markdown("# 📁 Historical Records")
-    tab1, tab2 = st.tabs(["Production Runs", "Fault Records"])
+    role = current_user().get("role", "")
+    can_edit = role in ("manager", "admin")
+    tabs = ["Production Runs", "Fault Records"] + (["✏️ Edit Records"] if can_edit else [])
+    tab1, tab2, *_edit_tabs = st.tabs(tabs)
+    tab_edit = _edit_tabs[0] if _edit_tabs else None
 
     # ── Production Runs ───────────────────────────────────────────────────────
     with tab1:
@@ -85,3 +92,72 @@ def render():
                 fdf[display_cols].to_csv(index=False).encode(),
                 "fault_records.csv", "text/csv"
             )
+
+    # ── Edit Records (manager / admin only) ───────────────────────────────────
+    if tab_edit:
+        with tab_edit:
+            section_header("Edit a closed production run")
+            st.caption("Changes are logged by your username and are permanent.")
+
+            closed_runs = read_sql(
+                "SELECT id, record_date, shift, line_number, product_name, flavor, "
+                "pack_size, packaging, packs_produced, packs_rejected, packs_target, "
+                "handover_note, logged_by, edited_by, edited_at "
+                "FROM production_runs WHERE status='closed' "
+                "ORDER BY record_date DESC, line_number"
+            )
+
+            if closed_runs.empty:
+                st.info("No closed runs to edit.")
+            else:
+                run_map = {
+                    f"[{r.record_date}] Line {r.line_number} — "
+                    f"{r.product_name} {r.flavor or ''} {r.pack_size or ''} {r.packaging or ''} "
+                    f"| {r.shift.split('(')[0].strip()}": r
+                    for r in closed_runs.itertuples()
+                }
+                selected_label = st.selectbox("Select run to edit", list(run_map.keys()), key="edit_sel")
+                er = run_map[selected_label]
+
+                edited_by = getattr(er, "edited_by", None) or None
+                edited_at = getattr(er, "edited_at", None) or None
+                edit_info = f" &nbsp;·&nbsp; **Last edited by:** {edited_by} at {edited_at}" if edited_by else ""
+                st.markdown(f"**Run ID:** `{er.id}` &nbsp;·&nbsp; **Logged by:** {er.logged_by or '—'}{edit_info}")
+                st.markdown("")
+
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    e_produced = st.number_input(
+                        "Packs Produced (cases)", min_value=0, step=1,
+                        value=int(er.packs_produced or 0), key="edit_prod"
+                    )
+                with ec2:
+                    e_rejected = st.number_input(
+                        "Packs Rejected", min_value=0, step=1,
+                        value=int(er.packs_rejected or 0), key="edit_rej"
+                    )
+
+                e_target = st.number_input(
+                    "Target (cases) — override if needed", min_value=0, step=1,
+                    value=int(er.packs_target or 0), key="edit_tgt",
+                    help="Leave as-is to keep the auto-calculated run-time target"
+                )
+                e_note = st.text_area(
+                    "Handover Note", value=er.handover_note or "", height=80, key="edit_note"
+                )
+
+                e_confirmed = st.checkbox("Confirm edit — this will overwrite the existing record", key="edit_confirm")
+
+                if st.button("💾  Save Changes", disabled=not e_confirmed, key="edit_save"):
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    editor  = current_user().get("username", "unknown")
+                    execute(
+                        "UPDATE production_runs SET "
+                        "packs_produced=?, packs_rejected=?, packs_target=?, handover_note=?, "
+                        "edited_by=?, edited_at=? "
+                        "WHERE id=?",
+                        (e_produced, e_rejected, e_target, e_note.strip() or None,
+                         editor, now_str, int(er.id)),
+                    )
+                    st.success(f"✅ Run ID {er.id} updated by {editor} at {now_str}.")
+                    st.rerun()

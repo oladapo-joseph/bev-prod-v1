@@ -20,7 +20,7 @@ import math
 from datetime import date, datetime
 
 from config import read_sql
-from data.reference import LINES, SHIFTS
+from data.reference import LINES, SHIFTS, HOURLY_TARGETS
 from components.ui import (
     efficiency, eff_color, kpi_card, section_header,
     calc_oee, oee_badge,
@@ -40,35 +40,55 @@ def _s(v, d=""):
 def render():
     st.markdown("# 📊 Shift Dashboard")
 
+    SHIFT_SHORT = ["Morning", "Afternoon", "Night"]
+
     cd1, cd2 = st.columns([1, 2])
     with cd1:
         dash_date = st.date_input("View Date", value=date.today())
     with cd2:
-        dash_shift = st.selectbox("Filter by Shift", ["All Shifts"] + SHIFTS)
+        dash_shift = st.selectbox("Filter by Shift", ["All Shifts"] + SHIFT_SHORT)
 
-    sf = "" if dash_shift == "All Shifts" else f" AND shift='{dash_shift}'"
+    date_str = str(dash_date)
 
-    # Closed runs for the selected date/shift
-    closed = read_sql(
-        f"SELECT * FROM production_runs "
-        f"WHERE record_date=? AND status='closed'{sf} "
-        f"ORDER BY line_number, run_start",
-        params=[str(dash_date)],
-    )
+    # Closed runs — parameterized, no f-string injection
+    if dash_shift == "All Shifts":
+        closed = read_sql(
+            "SELECT * FROM production_runs WHERE record_date=? AND status='closed' ORDER BY line_number, run_start",
+            params=[date_str],
+        )
+    else:
+        closed = read_sql(
+            "SELECT * FROM production_runs WHERE record_date=? AND status='closed' ORDER BY line_number, run_start",
+            params=[date_str],
+        )
+        if not closed.empty:
+            closed = closed[closed["shift"].str.split("(").str[0].str.strip() == dash_shift]
 
-    # Open runs — no date filter so overnight runs appear
-    open_q = (
-        "SELECT * FROM production_runs WHERE status='open'"
-        + (f" AND shift='{dash_shift}'" if dash_shift != "All Shifts" else "")
-        + " ORDER BY line_number, run_start"
-    )
-    open_ = read_sql(open_q)
+    # Open runs — filter by selected date so carryover runs from other days are labelled, not silently included
+    if dash_shift == "All Shifts":
+        open_ = read_sql(
+            "SELECT * FROM production_runs WHERE status='open' ORDER BY line_number, run_start"
+        )
+    else:
+        open_ = read_sql(
+            "SELECT * FROM production_runs WHERE status='open' ORDER BY line_number, run_start"
+        )
+        if not open_.empty:
+            open_ = open_[open_["shift"].str.split("(").str[0].str.strip() == dash_shift]
 
-    # All faults for the selected date
-    fault_df = read_sql(
-        f"SELECT * FROM fault_records WHERE record_date=?{sf} ORDER BY line_number",
-        params=[str(dash_date)],
-    )
+    # All faults for the selected date — parameterized
+    if dash_shift == "All Shifts":
+        fault_df = read_sql(
+            "SELECT * FROM fault_records WHERE record_date=? ORDER BY line_number",
+            params=[date_str],
+        )
+    else:
+        fault_df = read_sql(
+            "SELECT * FROM fault_records WHERE record_date=? ORDER BY line_number",
+            params=[date_str],
+        )
+        if not fault_df.empty:
+            fault_df = fault_df[fault_df["shift"].str.split("(").str[0].str.strip() == dash_shift]
 
     if closed.empty and open_.empty:
         st.warning("No runs found for this date/shift.")
@@ -126,7 +146,17 @@ def render():
                     )).total_seconds() / 3600
                     elapsed_str = "%.1fh elapsed" % elapsed
                 except Exception:
+                    elapsed     = 0.0
                     elapsed_str = ""
+
+                # Live estimated target based on elapsed time
+                try:
+                    cph = HOURLY_TARGETS[_s(row.get("product_name"))][_s(row.get("pack_size"))][_s(row.get("packaging"))]
+                    live_target = "{:,}".format(max(1, round(cph * max(elapsed, 0.1))))
+                    target_label = "Est. Target"
+                except KeyError:
+                    live_target  = "{:,}".format(_i(row.get("packs_target")))
+                    target_label = "Target"
 
                 st.markdown(
                     "<div style='background:#00e5a008;border:1px solid var(--accent);"
@@ -145,7 +175,7 @@ def render():
                     "<span>Shift: %s</span>"
                     "<span>Started: %s</span>"
                     "<span style='color:var(--accent)'>%s</span>"
-                    "<span>Target: %s cases</span>"
+                    "<span>%s: %s cases</span>"
                     "<span>Operator: %s</span>"
                     "</div></div>" % (
                         _i(row.get("line_number")),
@@ -155,7 +185,7 @@ def render():
                         _s(row.get("shift")).split("(")[0].strip(),
                         _s(row.get("run_start"))[:16],
                         elapsed_str,
-                        "{:,}".format(_i(row.get("packs_target"))),
+                        target_label, live_target,
                         _s(row.get("operator_name")) or "—",
                     ),
                     unsafe_allow_html=True,

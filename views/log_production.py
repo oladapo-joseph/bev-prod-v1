@@ -15,7 +15,7 @@ from datetime import date, datetime
 
 from auth import production_day, current_shift
 from config import execute, read_sql
-from data.reference import LINES, SHIFTS, PRODUCTS, PRODUCT_NAMES, PRODUCT_NAME_TO_ID, get_target
+from data.reference import LINES, SHIFTS, PRODUCTS, PRODUCT_NAMES, PRODUCT_NAME_TO_ID, get_target, get_run_target, HOURLY_TARGETS
 from components.ui import efficiency, eff_color, section_header, calc_oee, oee_badge
 
 _PH = (
@@ -94,19 +94,25 @@ def render(username: str):
             with cB:
                 operator = st.text_input("Operator / Supervisor", placeholder="Enter name", key=f"or_op_{ok}")
 
-        # Auto target preview
-        auto_target = 0
+        # Hourly rate preview (target is calculated at close time based on actual run duration)
+        auto_target  = 0
+        hourly_rate  = 0.0
         if product_name not in _PH and pack_size not in _PH and packaging not in _PH:
             auto_target = get_target(product_name, pack_size, packaging)
+            try:
+                hourly_rate = HOURLY_TARGETS[product_name][pack_size][packaging]
+            except KeyError:
+                hourly_rate = 0.0
 
-        if auto_target:
+        if hourly_rate:
             st.markdown(f"""
             <div class='target-preview'>
                 <span style='color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:1px'>
-                    Daily Case Target (auto)
+                    Ideal Rate
                 </span>
-                <span style='float:right;font-size:1.1rem;color:var(--accent)'>{auto_target:,} cases</span>
+                <span style='float:right;font-size:1.1rem;color:var(--accent)'>{hourly_rate:,.0f} cases / hr</span>
             </div>""", unsafe_allow_html=True)
+            st.caption("Target cases will be calculated automatically when the run is closed based on actual run time.")
             st.markdown("")
 
         # ── Check if this line already has an open run ────────────────────────
@@ -196,7 +202,16 @@ def render(username: str):
                     elapsed = (datetime.now() - datetime.strptime(str(r["run_start"])[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600
                     elapsed_str = f"{elapsed:.1f}h elapsed"
                 except Exception:
+                    elapsed    = 0.0
                     elapsed_str = ""
+                live_target = get_run_target(
+                    r["product_name"], r.get("pack_size") or "", r.get("packaging") or "", max(elapsed, 0.1)
+                )
+                try:
+                    cph = HOURLY_TARGETS[r["product_name"]][r.get("pack_size") or ""][r.get("packaging") or ""]
+                    rate_str = f"{cph:,.0f} cases/hr"
+                except KeyError:
+                    rate_str = ""
                 st.markdown(f"""
                 <div class='metric-card' style='padding:14px 20px'>
                     <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>
@@ -210,7 +225,8 @@ def render(username: str):
                         <span>Shift: {r["shift"].split("(")[0].strip()}</span>
                         <span>Started: {str(r["run_start"])[:16]}</span>
                         <span style='color:var(--accent)'>{elapsed_str}</span>
-                        <span>Target: {int(r["packs_target"]):,} cases</span>
+                        <span>Est. Target: {live_target:,} cases</span>
+                        {f"<span>Rate: {rate_str}</span>" if rate_str else ""}
                         <span>Operator: {r.get("operator_name","—") or "—"}</span>
                     </div>
                 </div>""", unsafe_allow_html=True)
@@ -294,9 +310,6 @@ def render(username: str):
                 )
 
             if packs_produced > 0:
-                eff_ = efficiency(packs_produced, int(run.packs_target))
-                col_ = eff_color(eff_)
-                # Estimate time for OEE preview using elapsed so far
                 import datetime as _dt
                 try:
                     elapsed_hrs = (_dt.datetime.now() - _dt.datetime.strptime(
@@ -304,9 +317,14 @@ def render(username: str):
                     )).total_seconds() / 3600
                 except Exception:
                     elapsed_hrs = 8.0
-                plan_hrs_est = max(elapsed_hrs, 0.1)
+                plan_hrs_est  = max(elapsed_hrs, 0.1)
+                live_target   = get_run_target(
+                    run.product_name, run.pack_size or "", run.packaging or "", plan_hrs_est
+                ) or int(run.packs_target)
+                eff_ = efficiency(packs_produced, live_target)
+                col_ = eff_color(eff_)
                 oee_ = calc_oee(plan_hrs_est, plan_hrs_est, packs_produced,
-                                int(run.packs_target), packs_rejected)
+                                live_target, packs_rejected)
                 st.markdown(
                     "<div style='background:var(--surface2);border:1px solid var(--border);"
                     "border-radius:8px;padding:12px 16px;margin-bottom:12px'>"
@@ -367,12 +385,49 @@ def render(username: str):
                     if st.checkbox(label, key=f"fault_link_{f['id']}_{ck}"):
                         selected_fault_ids.append(int(f["id"]))
 
+            if packs_rejected > packs_produced > 0:
+                st.error("⛔ Packs rejected cannot exceed packs produced.")
+
             st.markdown("")
-            close_ready = packs_produced > 0
-            if not close_ready:
+            close_ready = packs_produced > 0 and packs_rejected <= packs_produced
+            if not close_ready and packs_produced == 0:
                 st.info("Enter packs produced to close the run.")
 
-            if st.button("\u2705  Close & Submit Run", disabled=not close_ready, key=f"cr_btn_{ck}"):
+            confirmed = False
+            if close_ready:
+                st.markdown("---")
+                with st.expander("📋 Review before submitting", expanded=True):
+                    import datetime as _dt2
+                    try:
+                        _elapsed = (_dt2.datetime.now() - _dt2.datetime.strptime(
+                            str(run.run_start)[:19], "%Y-%m-%d %H:%M:%S"
+                        )).total_seconds() / 3600
+                    except Exception:
+                        _elapsed = 0.0
+                    _preview_target = get_run_target(
+                        run.product_name, run.pack_size or "", run.packaging or "", max(_elapsed, 0.1)
+                    ) or int(run.packs_target)
+                    _prev_eff = efficiency(packs_produced, _preview_target)
+                    _opening_target = int(run.packs_target)
+                    _target_change  = f" _(was {_opening_target:,} at open)_" if _preview_target != _opening_target else ""
+                    st.markdown(f"""
+                    | Field | Value |
+                    |---|---|
+                    | **Line** | {run.line_number} |
+                    | **Product** | {run.product_name} {run.flavor or ""} · {run.pack_size or ""} {run.packaging or ""} |
+                    | **Packs Produced** | {packs_produced:,} cases |
+                    | **Packs Rejected** | {packs_rejected:,} cases |
+                    | **Target (run time)** | {_preview_target:,} cases{_target_change} |
+                    | **Est. Efficiency** | {_prev_eff}% |
+                    | **Faults to link** | {len(selected_fault_ids)} |
+                    | **Handover note** | {handover.strip() or "—"} |
+                    """)
+                    confirmed = st.checkbox(
+                        "I have reviewed the above and confirm this is correct",
+                        key=f"cr_confirm_{ck}"
+                    )
+
+            if st.button("\u2705  Close & Submit Run", disabled=not (close_ready and confirmed), key=f"cr_btn_{ck}"):
                 run_end    = _now_str()
                 actual_hrs = _hrs_between(str(run.run_start), run_end)
 
@@ -386,16 +441,25 @@ def render(username: str):
                     unlinked[unlinked["id"].isin(selected_fault_ids)]["downtime_minutes"].sum()
                 ) if selected_fault_ids and not unlinked.empty else 0.0
 
-                down_hrs = round((already_dt + newly_linked_dt) / 60, 2)
-                plan_hrs = round(8.0, 2)
+                down_hrs  = round((already_dt + newly_linked_dt) / 60, 2)
+                plan_hrs  = round(actual_hrs, 2)
+
+                # Recalculate target based on actual run duration
+                run_target = get_run_target(
+                    run.product_name,
+                    run.pack_size or "",
+                    run.packaging or "",
+                    actual_hrs,
+                )
 
                 execute(
                     "UPDATE production_runs SET "
-                "packs_produced=?, packs_rejected=?, run_end=?, status='closed', closed_shift=?, "
-                "actual_time_hrs=?, down_time_hrs=?, plan_time_hrs=?, handover_note=? "
-                "WHERE id=?",
-                (packs_produced, packs_rejected, run_end, cur_shift, actual_hrs, down_hrs, plan_hrs,
-                 handover.strip() or None, int(run.id)),
+                    "packs_produced=?, packs_rejected=?, packs_target=?, run_end=?, "
+                    "status='closed', closed_shift=?, "
+                    "actual_time_hrs=?, down_time_hrs=?, plan_time_hrs=?, handover_note=? "
+                    "WHERE id=?",
+                    (packs_produced, packs_rejected, run_target, run_end, cur_shift,
+                     actual_hrs, down_hrs, plan_hrs, handover.strip() or None, int(run.id)),
                 )
 
                 for fid in selected_fault_ids:
@@ -404,12 +468,12 @@ def render(username: str):
                         (int(run.id), fid),
                     )
 
-                eff_final = efficiency(packs_produced, int(run.packs_target))
+                eff_final = efficiency(packs_produced, run_target)
                 cross_note = f" (cross-shift: {run.shift.split('(')[0].strip()} \u2192 {cur_shift.split('(')[0].strip()})" if is_carryover else ""
                 st.success(
                     f"\u2705 Run closed{cross_note} \u2014 Line {run.line_number} | "
                     f"{run.product_name} {run.flavor or ''} | "
-                    f"{packs_produced:,} cases | {eff_final}% efficiency | "
+                    f"{packs_produced:,} / {run_target:,} cases target | {eff_final}% efficiency | "
                     f"{len(selected_fault_ids)} fault(s) linked"
                 )
                 st.session_state["close_run_key"] += 1

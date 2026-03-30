@@ -102,7 +102,7 @@ if not require_login():
     </div>
     """, unsafe_allow_html=True)
 
-    _, right_col = st.columns([58, 42])
+    _, right_col = st.columns([65, 35])
     with right_col:
         st.markdown("""
         <div style="margin-top:-96vh; height:100vh; display:flex; flex-direction:column;
@@ -158,18 +158,27 @@ with st.sidebar:
     )
     st.markdown("<div class='section-header'>Navigation</div>", unsafe_allow_html=True)
 
-    lead_pages  = ["📋 Log Production", "⚠️ Log Fault", "📊 Shift Dashboard", "📁 Records"] if role in ("shift_lead", "admin") else []
+    lead_pages  = ["📋 Log Production", "⚠️ Log Fault", "📊 Shift Dashboard"] if role in ("shift_lead", "admin") else []
     mgr_pages   = ["🏭 Manager Overview"] if role in ("manager", "admin") else []
     admin_pages = ["👤 User Management"]  if role == "admin" else []
-    page = st.radio("", lead_pages + mgr_pages + admin_pages, label_visibility="collapsed")
+    # Records is available to all authenticated roles
+    records_page = ["📁 Records"]
+    all_pages = lead_pages + mgr_pages + records_page + admin_pages
+    page = st.radio("", all_pages, label_visibility="collapsed")
 
     st.markdown("---")
     st.markdown("<div class='section-header'>Today at a glance</div>", unsafe_allow_html=True)
 
-    _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[str(production_day())])
-    _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[str(production_day())])
-    _or = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[str(production_day())])
-    _ul = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[str(production_day())])
+    @st.cache_data(ttl=60)
+    def _sidebar_stats(day: str, _hour: int):  # _hour busts cache at shift boundaries
+        _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[day])
+        _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[day])
+        _or = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[day])
+        _ul = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[day])
+        return _tp, _tf, _or, _ul
+
+    from datetime import datetime as _dt
+    _tp, _tf, _or, _ul = _sidebar_stats(str(production_day()), _dt.now().hour)
 
     _packs    = int(_tp["p"].iloc[0])   if _tp["p"].iloc[0]   else 0
     _tgt      = int(_tp["t"].iloc[0])   if _tp["t"].iloc[0]   else 0

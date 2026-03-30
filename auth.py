@@ -34,7 +34,36 @@ def authenticate(username: str, password: str) -> dict | None:
 
 
 def require_login() -> bool:
-    return st.session_state.get("user") is not None
+    """
+    Returns True if a user is logged in AND still active in the DB.
+    Re-checks the DB at most once every 5 minutes to avoid a query on every rerun.
+    """
+    from datetime import datetime, timedelta
+    user = st.session_state.get("user")
+    if user is None:
+        return False
+
+    now = datetime.now()
+    last_check = st.session_state.get("_active_checked_at")
+    if last_check and (now - last_check) < timedelta(minutes=5):
+        return True
+
+    # Re-verify active flag in DB
+    conn = get_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT active FROM users WHERE username=?", (user["username"],))
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if not row or not row[0]:
+        # Deactivated — force logout
+        st.session_state.clear()
+        return False
+
+    st.session_state["_active_checked_at"] = now
+    return True
 
 
 def current_user() -> dict:
@@ -42,7 +71,8 @@ def current_user() -> dict:
 
 
 def logout():
-    st.session_state.pop("user", None)
+    # Clear all session state so cached data from the previous user doesn't leak
+    st.session_state.clear()
     st.rerun()
 
 

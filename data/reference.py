@@ -2,7 +2,8 @@
 data/reference.py — Static product catalogue and fault taxonomy
 """
 
-DAILY_LITRES     = 20_000 * 24   # 480,000 L/day at 20,000 L/hr
+HOURLY_LITRES    = 20_000        # 20,000 L/hr ideal throughput
+DAILY_LITRES     = HOURLY_LITRES * 24   # 480,000 L/day
 PET_BOTTLES_CASE = 12
 CAN_BOTTLES_CASE = 24
 
@@ -57,27 +58,44 @@ PRODUCT_NAME_TO_ID = {p['productName']: pid for pid, p in PRODUCTS.items()}
 
 
 # ── Target computation ────────────────────────────────────────────────────────
-def _daily_cases(pack_size_str: str, packaging: str) -> int:
+def _cases_per_hour(pack_size_str: str, packaging: str) -> float:
     s = pack_size_str.strip()
     litres = float(s.replace("cl", "")) / 100 if s.endswith("cl") else float(s.replace("L", ""))
     per_case = CAN_BOTTLES_CASE if packaging == "CAN" else PET_BOTTLES_CASE
-    return round((DAILY_LITRES / litres) / per_case)
+    return (HOURLY_LITRES / litres) / per_case
 
 
-# Pre-computed lookup: PRODUCT_TARGETS[product_name][pack_size][packaging] = int
-PRODUCT_TARGETS: dict[str, dict[str, dict[str, int]]] = {}
+# Pre-computed lookups keyed by [product_name][pack_size][packaging]
+PRODUCT_TARGETS: dict[str, dict[str, dict[str, int]]]   = {}  # daily baseline
+HOURLY_TARGETS:  dict[str, dict[str, dict[str, float]]] = {}  # cases/hr
+
 for _pid, _pd in PRODUCTS.items():
-    _name = _pd['productName']
-    PRODUCT_TARGETS[_name] = {}
+    _pname = _pd['productName']
+    PRODUCT_TARGETS[_pname] = {}
+    HOURLY_TARGETS[_pname]  = {}
     for _size in _pd['packSizes']:
-        PRODUCT_TARGETS[_name][_size] = {}
+        PRODUCT_TARGETS[_pname][_size] = {}
+        HOURLY_TARGETS[_pname][_size]  = {}
         for _pkg in _pd['packagings']:
-            PRODUCT_TARGETS[_name][_size][_pkg] = _daily_cases(_size, _pkg)
+            _cph = _cases_per_hour(_size, _pkg)
+            HOURLY_TARGETS[_pname][_size][_pkg]  = _cph
+            PRODUCT_TARGETS[_pname][_size][_pkg] = round(_cph * 24)
 
 
 def get_target(product_name: str, pack_size: str, packaging: str) -> int:
+    """Daily baseline target (cases). Used as opening estimate."""
     try:
         return PRODUCT_TARGETS[product_name][pack_size][packaging]
+    except KeyError:
+        return 0
+
+
+def get_run_target(product_name: str, pack_size: str, packaging: str,
+                   actual_hours: float) -> int:
+    """Target cases for a run of the given duration (hourly rate × hours)."""
+    try:
+        cph = HOURLY_TARGETS[product_name][pack_size][packaging]
+        return max(1, round(cph * actual_hours))
     except KeyError:
         return 0
 

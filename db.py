@@ -102,6 +102,8 @@ RUNS_MIGRATIONS = [
     ("plan_time_hrs",   "FLOAT"),
     ("actual_time_hrs", "FLOAT"),
     ("down_time_hrs",   "FLOAT"),
+    ("edited_by",       "NVARCHAR(50)"),
+    ("edited_at",       "NVARCHAR(30)"),
 ]
 
 FAULT_MIGRATIONS = [
