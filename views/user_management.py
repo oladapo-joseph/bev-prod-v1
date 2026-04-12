@@ -23,14 +23,19 @@ def render():
 
     st.markdown("---")
     st.markdown("### Add New User")
+
+    # Incrementing this key forces all input widgets below to re-mount as
+    # fresh (empty) widgets after a successful submission.
+    _form_ver = st.session_state.get("_um_form_ver", 0)
+
     na1, na2 = st.columns(2)
     with na1:
-        new_user     = st.text_input("Username",  placeholder="e.g. lead3")
-        new_fullname = st.text_input("Full Name", placeholder="e.g. John Doe")
+        new_user     = st.text_input("Username",  placeholder="e.g. lead3",    key=f"um_user_{_form_ver}")
+        new_fullname = st.text_input("Full Name", placeholder="e.g. John Doe", key=f"um_name_{_form_ver}")
     with na2:
-        new_role = st.selectbox("Role", ["shift_lead", "manager", "admin"])
-        new_pw   = st.text_input("Password",         type="password")
-        new_pw2  = st.text_input("Confirm Password", type="password")
+        new_role = st.selectbox("Role", ["shift_lead", "engineer", "manager", "admin"], key=f"um_role_{_form_ver}")
+        new_pw   = st.text_input("Password",         type="password", key=f"um_pw_{_form_ver}")
+        new_pw2  = st.text_input("Confirm Password", type="password", key=f"um_pw2_{_form_ver}")
 
     if st.button("➕ Add User"):
         if not all([new_user, new_fullname, new_pw]):
@@ -45,6 +50,7 @@ def render():
                     (new_user.strip(), new_fullname, new_role, h, s),
                 )
                 st.success(f"✅ User '{new_user}' created as {new_role}")
+                st.session_state["_um_form_ver"] = _form_ver + 1
                 st.rerun()
             except pyodbc.Error as e:
                 if "unique" in str(e).lower() or "duplicate" in str(e).lower() or "2627" in str(e) or "2601" in str(e):

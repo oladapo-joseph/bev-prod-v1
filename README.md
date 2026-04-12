@@ -37,12 +37,13 @@ project/
 
 ## Roles & Default Accounts
 
-| Role       | Username   | Password     | Access                                                              |
-|------------|------------|--------------|---------------------------------------------------------------------|
-| Admin      | `admin`    | `admin123`   | Everything + User Management                                        |
-| Manager    | `manager1` | `manager123` | Manager Overview, Records (with edit), all read-only views          |
-| Shift Lead | `lead1`    | `lead123`    | Log Production, Log Fault, Shift Dashboard, Shift Handover, Records |
-| Shift Lead | `lead2`    | `lead123`    | Same as above                                                       |
+| Role       | Username                       | Password     | Access                                                              |
+|------------|--------------------------------|--------------|---------------------------------------------------------------------|
+| Admin      | `admin`                        | `admin123`   | Everything + User Management                                        |
+| Manager    | `manager1`                     | `manager123` | Manager Overview, Records (with edit), all read-only views          |
+| Shift Lead | `lead1`                        | `lead123`    | Log Production, Log Fault, Shift Dashboard, Shift Handover, Records |
+| Shift Lead | `lead2`                        | `lead123`    | Same as above                                                       |
+| Engineer   | *(create via User Management)* | —            | Fault Dashboard, Shift Dashboard, Records (read-only)               |
 
 > **Change default passwords after first login** via User Management (admin only).
 

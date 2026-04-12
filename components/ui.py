@@ -385,6 +385,7 @@ h1,h2,h3,h4,h5,h6{
 
 .role-badge{display:inline-block;padding:3px 12px;border-radius:20px;font-family:'Space Mono',monospace;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
 .role-shift_lead{background:#00e5a015;border:1px solid var(--accent);color:var(--accent);}
+.role-engineer{background:#ff6b3515;border:1px solid var(--accent2);color:var(--accent2);}
 .role-manager{background:#7c6ff715;border:1px solid var(--manager);color:var(--manager);}
 .role-admin{background:#ff475715;border:1px solid var(--red);color:var(--red);}
 

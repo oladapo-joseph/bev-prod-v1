@@ -27,6 +27,7 @@ import views.shift_handover   as shift_handover
 import views.records          as records
 import views.manager_overview as manager_overview
 import views.user_management  as user_management
+import views.engineer_faults  as engineer_faults
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 inject_css()
@@ -135,7 +136,8 @@ if not require_login():
             <b style="color:#e8eaf0;">Default accounts</b><br>
             Admin &#8594; <code>admin</code> / <code>admin123</code><br>
             Manager &#8594; <code>manager1</code> / <code>manager123</code><br>
-            Shift Lead &#8594; <code>lead1</code> or <code>lead2</code> / <code>lead123</code>
+            Shift Lead &#8594; <code>lead1</code> or <code>lead2</code> / <code>lead123</code><br>
+            Engineer &#8594; create via User Management
         </div></div>
         """, unsafe_allow_html=True)
     st.stop()
@@ -161,10 +163,12 @@ with st.sidebar:
 
     lead_pages  = ["📋 Log Production", "⚠️ Log Fault", "📊 Shift Dashboard", "🔄 Shift Handover"] if role in ("shift_lead", "admin") else []
     mgr_pages   = ["🏭 Manager Overview"] if role in ("manager", "admin") else []
+    eng_pages   = ["🔧 Fault Dashboard"]  if role in ("engineer", "admin") else []
     admin_pages = ["👤 User Management"]  if role == "admin" else []
-    # Records is available to all authenticated roles
+    # Records + Shift Dashboard visible to all roles
     records_page = ["📁 Records"]
-    all_pages = lead_pages + mgr_pages + records_page + admin_pages
+    shared_pages = ["📊 Shift Dashboard"] if role == "engineer" else []
+    all_pages = lead_pages + mgr_pages + eng_pages + shared_pages + records_page + admin_pages
     page = st.radio("", all_pages, label_visibility="collapsed")
 
     st.markdown("---")
@@ -219,4 +223,5 @@ elif page == "📊 Shift Dashboard":  shift_dashboard.render()
 elif page == "🔄 Shift Handover":   shift_handover.render(uname, fname)
 elif page == "📁 Records":          records.render()
 elif page == "🏭 Manager Overview": manager_overview.render()
+elif page == "🔧 Fault Dashboard":  engineer_faults.render()
 elif page == "👤 User Management":  user_management.render()

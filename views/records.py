@@ -125,30 +125,34 @@ def render():
                 st.markdown(f"**Run ID:** `{er.id}` &nbsp;·&nbsp; **Logged by:** {er.logged_by or '—'}{edit_info}")
                 st.markdown("")
 
+                # Keys are scoped to the run ID so switching records always
+                # initialises fresh widgets (Streamlit ignores value= once a
+                # key exists in session_state).
+                _eid = er.id
                 ec1, ec2 = st.columns(2)
                 with ec1:
                     e_produced = st.number_input(
                         "Packs Produced (cases)", min_value=0, step=1,
-                        value=int(er.packs_produced or 0), key="edit_prod"
+                        value=int(er.packs_produced or 0), key=f"edit_prod_{_eid}"
                     )
                 with ec2:
                     e_rejected = st.number_input(
                         "Packs Rejected", min_value=0, step=1,
-                        value=int(er.packs_rejected or 0), key="edit_rej"
+                        value=int(er.packs_rejected or 0), key=f"edit_rej_{_eid}"
                     )
 
                 e_target = st.number_input(
                     "Target (cases) — override if needed", min_value=0, step=1,
-                    value=int(er.packs_target or 0), key="edit_tgt",
+                    value=int(er.packs_target or 0), key=f"edit_tgt_{_eid}",
                     help="Leave as-is to keep the auto-calculated run-time target"
                 )
                 e_note = st.text_area(
-                    "Handover Note", value=er.handover_note or "", height=80, key="edit_note"
+                    "Handover Note", value=er.handover_note or "No note", height=80, key=f"edit_note_{_eid}"
                 )
 
-                e_confirmed = st.checkbox("Confirm edit — this will overwrite the existing record", key="edit_confirm")
+                e_confirmed = st.checkbox("Confirm edit — this will overwrite the existing record", key=f"edit_confirm_{_eid}")
 
-                if st.button("💾  Save Changes", disabled=not e_confirmed, key="edit_save"):
+                if st.button("💾  Save Changes", disabled=not e_confirmed, key=f"edit_save_{_eid}"):
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     editor  = current_user().get("username", "unknown")
                     execute(
