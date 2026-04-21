@@ -88,19 +88,25 @@ CREATE TABLE production_runs (
 
 FAULTS_DDL_MSSQL = """
 CREATE TABLE fault_records (
-    id                  INT IDENTITY(1,1) PRIMARY KEY,
-    production_run_id   INT,
-    record_date         NVARCHAR(20)  NOT NULL,
-    shift               NVARCHAR(50)  NOT NULL,
-    line_number         INT           NOT NULL,
-    fault_time          NVARCHAR(10),
-    fault_machine       NVARCHAR(100) NOT NULL,
-    fault_detail        NVARCHAR(200),
-    downtime_minutes    INT           NOT NULL,
-    reported_by         NVARCHAR(100) NOT NULL,
-    notes               NVARCHAR(500),
-    logged_by           NVARCHAR(50),
-    created_at          NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120)),
+    id                      INT IDENTITY(1,1) PRIMARY KEY,
+    production_run_id       INT,
+    record_date             NVARCHAR(20)   NOT NULL,
+    shift                   NVARCHAR(50)   NOT NULL,
+    line_number             INT            NOT NULL,
+    fault_time              NVARCHAR(10),
+    fault_machine           NVARCHAR(100)  NOT NULL,
+    fault_detail            NVARCHAR(200),
+    downtime_minutes        INT            NOT NULL,
+    reported_by             NVARCHAR(100)  NOT NULL,
+    notes                   NVARCHAR(500),
+    logged_by               NVARCHAR(50),
+    status                  NVARCHAR(10)   DEFAULT 'open',
+    actual_downtime_minutes INT,
+    engineer_notes          NVARCHAR(1000),
+    root_cause              NVARCHAR(100),
+    closed_by               NVARCHAR(50),
+    closed_at               NVARCHAR(30),
+    created_at              NVARCHAR(30)   DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120)),
     FOREIGN KEY (production_run_id) REFERENCES production_runs(id)
 )"""
 
@@ -160,19 +166,25 @@ CREATE TABLE production_runs (
 
 FAULTS_DDL_SQLITE = """
 CREATE TABLE fault_records (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    production_run_id INTEGER,
-    record_date       TEXT NOT NULL,
-    shift             TEXT NOT NULL,
-    line_number       INTEGER NOT NULL,
-    fault_time        TEXT,
-    fault_machine     TEXT NOT NULL,
-    fault_detail      TEXT,
-    downtime_minutes  INTEGER NOT NULL,
-    reported_by       TEXT NOT NULL,
-    notes             TEXT,
-    logged_by         TEXT,
-    created_at        TEXT DEFAULT (datetime('now')),
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_run_id       INTEGER,
+    record_date             TEXT    NOT NULL,
+    shift                   TEXT    NOT NULL,
+    line_number             INTEGER NOT NULL,
+    fault_time              TEXT,
+    fault_machine           TEXT    NOT NULL,
+    fault_detail            TEXT,
+    downtime_minutes        INTEGER NOT NULL,
+    reported_by             TEXT    NOT NULL,
+    notes                   TEXT,
+    logged_by               TEXT,
+    status                  TEXT    DEFAULT 'open',
+    actual_downtime_minutes INTEGER,
+    engineer_notes          TEXT,
+    root_cause              TEXT,
+    closed_by               TEXT,
+    closed_at               TEXT,
+    created_at              TEXT    DEFAULT (datetime('now')),
     FOREIGN KEY (production_run_id) REFERENCES production_runs(id)
 )"""
 
@@ -205,11 +217,17 @@ RUNS_MIGRATIONS = [
 ]
 
 FAULT_MIGRATIONS = [
-    ("production_run_id", "INT",          "INTEGER"),
-    ("fault_time",        "NVARCHAR(10)", "TEXT"),
-    ("notes",             "NVARCHAR(500)","TEXT"),
-    ("fault_machine",     "NVARCHAR(100)","TEXT"),
-    ("fault_detail",      "NVARCHAR(200)","TEXT"),
+    ("production_run_id",       "INT",            "INTEGER"),
+    ("fault_time",              "NVARCHAR(10)",   "TEXT"),
+    ("notes",                   "NVARCHAR(500)",  "TEXT"),
+    ("fault_machine",           "NVARCHAR(100)",  "TEXT"),
+    ("fault_detail",            "NVARCHAR(200)",  "TEXT"),
+    ("status",                  "NVARCHAR(10)",   "TEXT"),
+    ("actual_downtime_minutes", "INT",            "INTEGER"),
+    ("engineer_notes",          "NVARCHAR(1000)", "TEXT"),
+    ("root_cause",              "NVARCHAR(100)",  "TEXT"),
+    ("closed_by",               "NVARCHAR(50)",   "TEXT"),
+    ("closed_at",               "NVARCHAR(30)",   "TEXT"),
 ]
 
 DEFAULT_USERS = [
@@ -257,6 +275,9 @@ def init_db():
         if not _column_exists(c, "fault_records", col):
             col_type = sqlite_type if is_sqlite else mssql_type
             c.execute(f"ALTER TABLE fault_records ADD {'COLUMN ' if is_sqlite else ''}{col} {col_type}")
+
+    # Backfill status for pre-migration rows
+    c.execute("UPDATE fault_records SET status='open' WHERE status IS NULL")
 
     # Seed default users if the table is empty
     c.execute("SELECT COUNT(*) FROM users")

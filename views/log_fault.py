@@ -152,12 +152,12 @@ def render(username: str, full_name: str):
             "INSERT INTO fault_records "
             "(record_date, shift, line_number, fault_time, "
             "fault_machine, fault_detail, downtime_minutes, "
-            "reported_by, notes, logged_by, production_run_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "reported_by, notes, logged_by, production_run_id, status) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(production_day()), f_shift, f_line, fault_time_str,
              fault_machine, fault_detail, downtime,
              reported_by.strip(), notes.strip() or None,
-             username, active_run_id),
+             username, active_run_id, "open"),
         )
 
         if active_run_id:

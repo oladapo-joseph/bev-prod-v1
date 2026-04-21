@@ -37,6 +37,11 @@ def _i(v, d=0):
 def _s(v, d=""):
     return d if v is None else str(v)
 
+def _eff_dt(df: pd.DataFrame) -> pd.Series:
+    if not df.empty and "actual_downtime_minutes" in df.columns:
+        return df["actual_downtime_minutes"].fillna(df["downtime_minutes"])
+    return df["downtime_minutes"]
+
 
 def render():
     st.markdown("# 📊 Shift Dashboard")
@@ -100,7 +105,7 @@ def render():
     # ── Plant-level KPIs ──────────────────────────────────────────────────────
     tp  = int(closed["packs_produced"].sum()) if not closed.empty else 0
     tt  = int(closed["packs_target"].sum())   if not closed.empty else 0
-    tdt = int(fault_df["downtime_minutes"].sum()) if not fault_df.empty else 0
+    tdt = int(_eff_dt(fault_df).sum()) if not fault_df.empty else 0
     tfc = len(fault_df)
     unlinked_ct = int(fault_df["production_run_id"].isna().sum()) if not fault_df.empty else 0
 
@@ -223,7 +228,7 @@ def render():
             # Faults across all runs on this line
             ln_run_ids  = lp["id"].tolist()
             lf_all      = fault_df[fault_df["production_run_id"].isin(ln_run_ids)] if not fault_df.empty else pd.DataFrame()
-            ln_fdt      = int(lf_all["downtime_minutes"].sum()) if not lf_all.empty else 0
+            ln_fdt      = int(_eff_dt(lf_all).sum()) if not lf_all.empty else 0
             ln_fc       = len(lf_all)
 
             # OEE aggregated across runs
@@ -293,14 +298,13 @@ def render():
                 plan_hrs_r   = _f(row.get("plan_time_hrs"), 8.0)
                 rejected_r   = _i(row.get("packs_rejected"))
                 handover     = _s(row.get("handover_note"))
-                e            = efficiency(produced, target)
-                col          = eff_color(e)
-                oee_r        = calc_oee(plan_hrs_r, actual_hrs, produced, target, rejected_r, fdt / 60.0)
-
                 # Faults for this specific run
-                lf = fault_df[fault_df["production_run_id"] == rid] if (rid is not None and not fault_df.empty) else pd.DataFrame()
-                fdt = int(lf["downtime_minutes"].sum()) if not lf.empty else 0
+                lf  = fault_df[fault_df["production_run_id"] == rid] if (rid is not None and not fault_df.empty) else pd.DataFrame()
+                fdt = int(_eff_dt(lf).sum()) if not lf.empty else 0
                 fc2 = len(lf)
+                e   = efficiency(produced, target)
+                col = eff_color(e)
+                oee_r = calc_oee(plan_hrs_r, actual_hrs, produced, target, rejected_r, fdt / 60.0)
 
                 closed_shift = _s(row.get("closed_shift")).split("(")[0].strip()
                 cross_tag = ""
@@ -362,13 +366,17 @@ def render():
                             "margin-bottom:6px'>Faults</div>",
                             unsafe_allow_html=True,
                         )
+                        lf_disp = lf.copy()
+                        lf_disp["Validated"] = lf_disp.get("status", "open").apply(
+                            lambda s: "✅" if s == "closed" else "⏳"
+                        ) if "status" in lf_disp.columns else "⏳"
+                        lf_disp["Downtime (min)"] = _eff_dt(lf_disp).astype(int)
                         cols_lf = [c for c in ["fault_time","fault_machine","fault_detail",
-                                               "downtime_minutes","reported_by"] if c in lf.columns]
+                                               "Downtime (min)","reported_by","Validated"] if c in lf_disp.columns]
                         st.dataframe(
-                            lf[cols_lf].rename(columns={
+                            lf_disp[cols_lf].rename(columns={
                                 "fault_time":"Time", "fault_machine":"Machine",
-                                "fault_detail":"Detail", "downtime_minutes":"Downtime (min)",
-                                "reported_by":"Reported By",
+                                "fault_detail":"Detail", "reported_by":"Reported By",
                             }), use_container_width=True, hide_index=True,
                         )
                     else:

@@ -20,6 +20,12 @@ def _load_all_data():
     return read_sql("SELECT * FROM production_runs"), read_sql("SELECT * FROM fault_records")
 
 
+def _eff_dt(df: pd.DataFrame) -> pd.Series:
+    if not df.empty and "actual_downtime_minutes" in df.columns:
+        return df["actual_downtime_minutes"].fillna(df["downtime_minutes"])
+    return df["downtime_minutes"]
+
+
 def _safe(row, col, default=""):
     """Safely get a column value from a Series row."""
     try:
@@ -141,7 +147,7 @@ def render():
     te  = efficiency(tp, tt)
 
     faults_today = all_faults[all_faults["record_date"] == today_str] if not all_faults.empty else pd.DataFrame()
-    tdt = int(faults_today["downtime_minutes"].sum()) if not faults_today.empty else 0
+    tdt = int(_eff_dt(faults_today).sum()) if not faults_today.empty else 0
     tfc = len(faults_today)
     unlinked_cnt = int(faults_today["production_run_id"].isna().sum()) if not faults_today.empty else 0
 
@@ -302,7 +308,7 @@ def render():
                 ln_col        = eff_color(ln_eff)
                 ln_run_ids    = lp_closed["id"].tolist()
                 lf_all        = df_f[df_f["production_run_id"].isin(ln_run_ids)] if not df_f.empty and "production_run_id" in df_f.columns else pd.DataFrame()
-                ln_fdt        = int(lf_all["downtime_minutes"].sum()) if not lf_all.empty else 0
+                ln_fdt        = int(_eff_dt(lf_all).sum()) if not lf_all.empty else 0
                 ln_fc         = len(lf_all)
                 ln_run_hrs    = sum(_safe_float(r, "actual_time_hrs") for _, r in lp_closed.iterrows())
                 ln_plan_hrs   = sum(_safe_float(r, "plan_time_hrs") or 8.0 for _, r in lp_closed.iterrows())
@@ -375,7 +381,7 @@ def render():
                     rejected_m   = _safe_int(row, "packs_rejected")
                     handover     = _safe(row, "handover_note")
                     rf  = df_f[df_f["production_run_id"] == rid] if (rid is not None and not df_f.empty and "production_run_id" in df_f.columns) else pd.DataFrame()
-                    fdt = int(rf["downtime_minutes"].sum()) if not rf.empty else 0
+                    fdt = int(_eff_dt(rf).sum()) if not rf.empty else 0
                     fc2 = len(rf)
                     e   = efficiency(produced, target)
                     col = eff_color(e)
@@ -422,11 +428,16 @@ def render():
                                 unsafe_allow_html=True,
                             )
                         if not rf.empty:
-                            cols_rf = [c for c in ["fault_time","fault_machine","fault_detail","downtime_minutes","reported_by"] if c in rf.columns]
-                            st.dataframe(rf[cols_rf].rename(columns={
+                            rf_disp = rf.copy()
+                            rf_disp["Validated"] = rf_disp["status"].apply(
+                                lambda s: "✅" if s == "closed" else "⏳"
+                            ) if "status" in rf_disp.columns else "⏳"
+                            rf_disp["Downtime (min)"] = _eff_dt(rf_disp).astype(int)
+                            cols_rf = [c for c in ["fault_time","fault_machine","fault_detail",
+                                                   "Downtime (min)","reported_by","Validated"] if c in rf_disp.columns]
+                            st.dataframe(rf_disp[cols_rf].rename(columns={
                                 "fault_time":"Time","fault_machine":"Machine",
-                                "fault_detail":"Detail","downtime_minutes":"Downtime (min)",
-                                "reported_by":"Reported By",
+                                "fault_detail":"Detail","reported_by":"Reported By",
                             }), use_container_width=True, hide_index=True)
                         else:
                             st.caption("No faults logged for this run.")

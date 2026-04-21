@@ -165,10 +165,8 @@ with st.sidebar:
     mgr_pages   = ["🏭 Manager Overview"] if role in ("manager", "admin") else []
     eng_pages   = ["🔧 Fault Dashboard"]  if role in ("engineer", "admin") else []
     admin_pages = ["👤 User Management"]  if role == "admin" else []
-    # Records + Shift Dashboard visible to all roles
     records_page = ["📁 Records"]
-    shared_pages = ["📊 Shift Dashboard"] if role == "engineer" else []
-    all_pages = lead_pages + mgr_pages + eng_pages + shared_pages + records_page + admin_pages
+    all_pages = lead_pages + mgr_pages + eng_pages + records_page + admin_pages
     page = st.radio("", all_pages, label_visibility="collapsed", key="nav_radio")
 
     st.markdown("---")
@@ -177,7 +175,7 @@ with st.sidebar:
     @st.cache_data(ttl=60)
     def _sidebar_stats(day: str, _hour: int):  # _hour busts cache at shift boundaries
         _tp = read_sql("SELECT SUM(packs_produced) as p, SUM(packs_target) as t FROM production_runs WHERE status='closed' AND record_date=?", params=[day])
-        _tf = read_sql("SELECT COUNT(*) as cnt, SUM(downtime_minutes) as dt FROM fault_records WHERE record_date=?", params=[day])
+        _tf = read_sql("SELECT COUNT(*) as cnt, SUM(COALESCE(actual_downtime_minutes, downtime_minutes)) as dt FROM fault_records WHERE record_date=?", params=[day])
         _or = read_sql("SELECT COUNT(*) as cnt FROM production_runs WHERE status='open' AND record_date=?", params=[day])
         _ul = read_sql("SELECT COUNT(*) as cnt FROM fault_records WHERE production_run_id IS NULL AND record_date=?", params=[day])
         return _tp, _tf, _or, _ul
