@@ -1,12 +1,13 @@
 """
 db.py — Table creation, migrations, and default data seeding
 -------------------------------------------------------------
-SQL Server only. Call init_db() once at app startup.
+Supports both SQL Server and SQLite backends (controlled by DB_BACKEND in config).
+Call init_db() once at app startup.
 """
 
 import hashlib
 import secrets
-from config import get_conn
+from config import get_conn, DB_BACKEND
 
 
 def hash_pw(password: str, salt: str = None):
@@ -16,24 +17,38 @@ def hash_pw(password: str, salt: str = None):
     return hashed, salt
 
 
+# ── Schema existence checks (backend-aware) ───────────────────────────────────
+
 def _table_exists(cursor, table_name: str) -> bool:
-    cursor.execute(
-        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?",
-        (table_name,)
-    )
+    if DB_BACKEND == "sqlite":
+        cursor.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        )
+    else:
+        cursor.execute(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME=?",
+            (table_name,)
+        )
     return cursor.fetchone()[0] > 0
 
 
 def _column_exists(cursor, table_name: str, column_name: str) -> bool:
-    cursor.execute(
-        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
-        "WHERE TABLE_NAME = ? AND COLUMN_NAME = ?",
-        (table_name, column_name)
-    )
-    return cursor.fetchone()[0] > 0
+    if DB_BACKEND == "sqlite":
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        return any(row[1] == column_name for row in cursor.fetchall())
+    else:
+        cursor.execute(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME=? AND COLUMN_NAME=?",
+            (table_name, column_name)
+        )
+        return cursor.fetchone()[0] > 0
 
 
-USERS_DDL = """
+# ── DDL — SQL Server ──────────────────────────────────────────────────────────
+
+USERS_DDL_MSSQL = """
 CREATE TABLE users (
     id            INT IDENTITY(1,1) PRIMARY KEY,
     username      NVARCHAR(50)  UNIQUE NOT NULL,
@@ -45,9 +60,7 @@ CREATE TABLE users (
     created_at    NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120))
 )"""
 
-# shift        = shift the run was OPENED in
-# closed_shift = shift the run was CLOSED in (may differ for cross-shift runs)
-PRODUCTION_RUNS_DDL = """
+RUNS_DDL_MSSQL = """
 CREATE TABLE production_runs (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     record_date     NVARCHAR(20)  NOT NULL,
@@ -73,7 +86,7 @@ CREATE TABLE production_runs (
     created_at      NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120))
 )"""
 
-FAULTS_DDL = """
+FAULTS_DDL_MSSQL = """
 CREATE TABLE fault_records (
     id                  INT IDENTITY(1,1) PRIMARY KEY,
     production_run_id   INT,
@@ -91,22 +104,7 @@ CREATE TABLE fault_records (
     FOREIGN KEY (production_run_id) REFERENCES production_runs(id)
 )"""
 
-
-RUNS_MIGRATIONS = [
-    ("closed_shift",    "NVARCHAR(50)"),
-    ("packs_rejected",  "INT"),
-    ("run_start",       "NVARCHAR(30)"),
-    ("run_end",         "NVARCHAR(30)"),
-    ("status",          "NVARCHAR(10)"),
-    ("handover_note",   "NVARCHAR(500)"),
-    ("plan_time_hrs",   "FLOAT"),
-    ("actual_time_hrs", "FLOAT"),
-    ("down_time_hrs",   "FLOAT"),
-    ("edited_by",       "NVARCHAR(50)"),
-    ("edited_at",       "NVARCHAR(30)"),
-]
-
-HANDOVERS_DDL = """
+HANDOVERS_DDL_MSSQL = """
 CREATE TABLE shift_handovers (
     id           INT IDENTITY(1,1) PRIMARY KEY,
     record_date  NVARCHAR(20)  NOT NULL,
@@ -117,12 +115,101 @@ CREATE TABLE shift_handovers (
     submitted_at NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120))
 )"""
 
+
+# ── DDL — SQLite ──────────────────────────────────────────────────────────────
+
+USERS_DDL_SQLITE = """
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT UNIQUE NOT NULL,
+    full_name     TEXT NOT NULL,
+    role          TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    salt          TEXT NOT NULL,
+    active        INTEGER DEFAULT 1,
+    created_at    TEXT DEFAULT (datetime('now'))
+)"""
+
+RUNS_DDL_SQLITE = """
+CREATE TABLE production_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_date     TEXT NOT NULL,
+    shift           TEXT NOT NULL,
+    closed_shift    TEXT,
+    line_number     INTEGER NOT NULL,
+    product_name    TEXT NOT NULL,
+    flavor          TEXT,
+    pack_size       TEXT,
+    packaging       TEXT,
+    packs_produced  INTEGER,
+    packs_target    INTEGER,
+    packs_rejected  INTEGER DEFAULT 0,
+    run_start       TEXT NOT NULL,
+    run_end         TEXT,
+    plan_time_hrs   REAL,
+    actual_time_hrs REAL,
+    down_time_hrs   REAL,
+    status          TEXT DEFAULT 'open',
+    operator_name   TEXT,
+    handover_note   TEXT,
+    logged_by       TEXT,
+    edited_by       TEXT,
+    edited_at       TEXT,
+    created_at      TEXT DEFAULT (datetime('now'))
+)"""
+
+FAULTS_DDL_SQLITE = """
+CREATE TABLE fault_records (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_run_id INTEGER,
+    record_date       TEXT NOT NULL,
+    shift             TEXT NOT NULL,
+    line_number       INTEGER NOT NULL,
+    fault_time        TEXT,
+    fault_machine     TEXT NOT NULL,
+    fault_detail      TEXT,
+    downtime_minutes  INTEGER NOT NULL,
+    reported_by       TEXT NOT NULL,
+    notes             TEXT,
+    logged_by         TEXT,
+    created_at        TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (production_run_id) REFERENCES production_runs(id)
+)"""
+
+HANDOVERS_DDL_SQLITE = """
+CREATE TABLE shift_handovers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_date  TEXT NOT NULL,
+    shift        TEXT NOT NULL,
+    submitted_by TEXT NOT NULL,
+    full_name    TEXT NOT NULL,
+    comments     TEXT,
+    submitted_at TEXT DEFAULT (datetime('now'))
+)"""
+
+
+# ── Column migrations ─────────────────────────────────────────────────────────
+# Each entry: (column_name, mssql_type, sqlite_type)
+RUNS_MIGRATIONS = [
+    ("closed_shift",    "NVARCHAR(50)",  "TEXT"),
+    ("packs_rejected",  "INT",           "INTEGER"),
+    ("run_start",       "NVARCHAR(30)",  "TEXT"),
+    ("run_end",         "NVARCHAR(30)",  "TEXT"),
+    ("status",          "NVARCHAR(10)",  "TEXT"),
+    ("handover_note",   "NVARCHAR(500)", "TEXT"),
+    ("plan_time_hrs",   "FLOAT",         "REAL"),
+    ("actual_time_hrs", "FLOAT",         "REAL"),
+    ("down_time_hrs",   "FLOAT",         "REAL"),
+    ("edited_by",       "NVARCHAR(50)",  "TEXT"),
+    ("edited_at",       "NVARCHAR(30)",  "TEXT"),
+]
+
 FAULT_MIGRATIONS = [
-    ("production_run_id", "INT"),
-    ("fault_time",        "NVARCHAR(10)"),
-    ("notes",             "NVARCHAR(500)"),
-    ("fault_machine",     "NVARCHAR(100)"),
-    ("fault_detail",      "NVARCHAR(200)"),
+    ("production_run_id", "INT",          "INTEGER"),
+    ("fault_time",        "NVARCHAR(10)", "TEXT"),
+    ("notes",             "NVARCHAR(500)","TEXT"),
+    ("fault_machine",     "NVARCHAR(100)","TEXT"),
+    ("fault_detail",      "NVARCHAR(200)","TEXT"),
 ]
 
 DEFAULT_USERS = [
@@ -133,27 +220,45 @@ DEFAULT_USERS = [
 ]
 
 
+# ── init_db ───────────────────────────────────────────────────────────────────
+
 def init_db():
+    is_sqlite = (DB_BACKEND == "sqlite")
+
+    if is_sqlite:
+        tables = [
+            ("users",           USERS_DDL_SQLITE),
+            ("production_runs", RUNS_DDL_SQLITE),
+            ("fault_records",   FAULTS_DDL_SQLITE),
+            ("shift_handovers", HANDOVERS_DDL_SQLITE),
+        ]
+    else:
+        tables = [
+            ("users",           USERS_DDL_MSSQL),
+            ("production_runs", RUNS_DDL_MSSQL),
+            ("fault_records",   FAULTS_DDL_MSSQL),
+            ("shift_handovers", HANDOVERS_DDL_MSSQL),
+        ]
+
     conn = get_conn()
     c    = conn.cursor()
 
-    for table, ddl in [
-        ("users",            USERS_DDL),
-        ("production_runs",  PRODUCTION_RUNS_DDL),
-        ("fault_records",    FAULTS_DDL),
-        ("shift_handovers",  HANDOVERS_DDL),
-    ]:
+    for table, ddl in tables:
         if not _table_exists(c, table):
             c.execute(ddl)
 
-    for col, typ in RUNS_MIGRATIONS:
+    # Column migrations — add missing columns to existing tables
+    for col, mssql_type, sqlite_type in RUNS_MIGRATIONS:
         if not _column_exists(c, "production_runs", col):
-            c.execute(f"ALTER TABLE production_runs ADD {col} {typ}")
+            col_type = sqlite_type if is_sqlite else mssql_type
+            c.execute(f"ALTER TABLE production_runs ADD {'COLUMN ' if is_sqlite else ''}{col} {col_type}")
 
-    for col, typ in FAULT_MIGRATIONS:
+    for col, mssql_type, sqlite_type in FAULT_MIGRATIONS:
         if not _column_exists(c, "fault_records", col):
-            c.execute(f"ALTER TABLE fault_records ADD {col} {typ}")
+            col_type = sqlite_type if is_sqlite else mssql_type
+            c.execute(f"ALTER TABLE fault_records ADD {'COLUMN ' if is_sqlite else ''}{col} {col_type}")
 
+    # Seed default users if the table is empty
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
         for username, full_name, role, pw in DEFAULT_USERS:

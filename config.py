@@ -1,118 +1,146 @@
 """
-config.py — SQL Server database connection
-------------------------------------------
-All credentials are loaded from a .env file (or environment variables).
+config.py — Database connection (SQL Server or SQLite)
+------------------------------------------------------
+Backend is selected by the DB_BACKEND environment variable (or secret):
 
-Required .env variables:
-    DB_SERVER   — SQL Server host, e.g. 192.168.1.10 or myserver.database.windows.net
-    DB_NAME     — Database name, e.g. linetrack
-    DB_USER     — SQL Server login username
-    DB_PASSWORD — SQL Server login password
-    DB_DRIVER   — ODBC driver name (default: ODBC Driver 17 for SQL Server)
+    DB_BACKEND=mssql    (default) — connects to SQL Server via pyodbc
+    DB_BACKEND=sqlite             — connects to a local SQLite file
 
-Install dependencies:
-    pip install pyodbc pandas python-dotenv
+Credential resolution order (first non-empty value wins):
+    1. .env file (local dev)
+    2. OS environment variables (Docker, Railway, Render, Fly.io)
+    3. st.secrets (Streamlit Cloud)
 
-Install ODBC driver:
-    Windows : https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
-    Ubuntu  : sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
+SQL Server variables:
+    DB_SERVER, DB_NAME, DB_USER, DB_PASSWORD
+    DB_DRIVER  (default: ODBC Driver 17 for SQL Server)
+
+SQLite variables:
+    SQLITE_PATH  (default: production.db)
 """
 
 import os
-import pyodbc
+import sqlite3
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv, dotenv_values
+from dotenv import dotenv_values
 
-env = dotenv_values('.env')
-
-# ── Connection settings from environment ─────────────────────────────────────
-_SERVER   = env['DB_SERVER'] 
-_DATABASE = env["DB_NAME"]
-_USER     = env["DB_USER"]
-_PASSWORD = env["DB_PASSWORD"]
-_DRIVER   = env["DB_DRIVER"]
+_env = dotenv_values(".env")
 
 
-def _build_conn_str() -> str:
-    return (
-        f"DRIVER={{{_DRIVER}}};"
-        f"SERVER={_SERVER};"
-        f"DATABASE={_DATABASE};"
-        f"UID={_USER};"
-        f"PWD={_PASSWORD};"
-        f"TrustServerCertificate=yes;"
-        f"Encrypt=yes;"
-    )
+def _secret(key: str, default: str = "") -> str:
+    """Read a config value from .env → os.environ → st.secrets, in that order."""
+    val = _env.get(key) or os.getenv(key)
+    if not val:
+        try:
+            val = st.secrets.get(key)
+        except Exception:
+            pass
+    return val or default
 
 
-@st.cache_resource(show_spinner="Connecting to database…")
-def _get_engine():
-    """
-    Create and cache a single pyodbc connection pool representative.
-    Returns a callable that produces fresh connections from the same config.
-    Cached once per Streamlit session — reconnects automatically on failure
-    via pool_pre_ping equivalent (autocommit=False, connection tested on use).
-    """
-    conn_str = _build_conn_str()
-    # Verify the connection is reachable at startup
-    test = pyodbc.connect(conn_str, timeout=10)
-    test.close()
-    return conn_str   # store the string; each get_conn() opens a fresh connection
+DB_BACKEND  = _secret("DB_BACKEND", "mssql").lower()
+SQLITE_PATH = _secret("SQLITE_PATH", "production.db")
 
 
-def get_conn() -> pyodbc.Connection:
-    """
-    Return a live pyodbc connection to SQL Server.
-    Call conn.close() after use (handled inside read_sql and execute).
-    """
-    try:
-        conn_str = _get_engine()
-        return pyodbc.connect(conn_str, timeout=15)
-    except pyodbc.Error as e:
-        st.error(f"❌ Database connection failed: {e}")
-        raise
+# ══════════════════════════════════════════════════════════════════════════════
+# SQLite backend
+# ══════════════════════════════════════════════════════════════════════════════
+
+if DB_BACKEND == "sqlite":
+
+    def get_conn() -> sqlite3.Connection:
+        conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def read_sql(query: str, params: list | tuple | None = None) -> pd.DataFrame:
+        conn = get_conn()
+        try:
+            return pd.read_sql_query(query, conn, params=params or [])
+        except Exception as e:
+            st.error(f"❌ Query failed: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def execute(query: str, params: list | tuple | None = None) -> None:
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(query, params or [])
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            st.error(f"❌ Execute failed: {e}")
+            raise
+        finally:
+            conn.close()
 
 
-def read_sql(query: str, params: list | tuple | None = None) -> pd.DataFrame:
-    """
-    Execute a SELECT query and return results as a DataFrame.
-    Uses ? placeholders for parameters (pyodbc standard).
+# ══════════════════════════════════════════════════════════════════════════════
+# SQL Server backend (default)
+# ══════════════════════════════════════════════════════════════════════════════
 
-    Example:
-        df = read_sql("SELECT * FROM users WHERE username = ?", params=["admin"])
-    """
-    conn = get_conn()
-    try:
-        if params:
-            return pd.read_sql(query, conn, params=params)
-        return pd.read_sql(query, conn)
-    except pyodbc.Error as e:
-        st.error(f"❌ Query failed: {e}")
-        raise
-    finally:
-        conn.close()
+else:
+    import pyodbc
 
+    _SERVER   = _secret("DB_SERVER")
+    _DATABASE = _secret("DB_NAME")
+    _USER     = _secret("DB_USER")
+    _PASSWORD = _secret("DB_PASSWORD")
+    _DRIVER   = _secret("DB_DRIVER", "ODBC Driver 17 for SQL Server")
 
-def execute(query: str, params: list | tuple | None = None) -> None:
-    """
-    Execute an INSERT / UPDATE / DELETE / DDL statement and commit.
-    Uses ? placeholders for parameters (pyodbc standard).
+    def _build_conn_str() -> str:
+        return (
+            f"DRIVER={{{_DRIVER}}};"
+            f"SERVER={_SERVER};"
+            f"DATABASE={_DATABASE};"
+            f"UID={_USER};"
+            f"PWD={_PASSWORD};"
+            f"TrustServerCertificate=yes;"
+            f"Encrypt=yes;"
+        )
 
-    Example:
-        execute("INSERT INTO users (username) VALUES (?)", params=["lead3"])
-    """
-    conn = get_conn()
-    try:
-        cursor = conn.cursor()
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-        conn.commit()
-    except pyodbc.Error as e:
-        conn.rollback()
-        st.error(f"❌ Execute failed: {e}")
-        raise
-    finally:
-        conn.close()
+    @st.cache_resource(show_spinner="Connecting to database…")
+    def _get_engine():
+        conn_str = _build_conn_str()
+        test = pyodbc.connect(conn_str, timeout=10)
+        test.close()
+        return conn_str
+
+    def get_conn() -> pyodbc.Connection:
+        try:
+            return pyodbc.connect(_get_engine(), timeout=15)
+        except pyodbc.Error as e:
+            st.error(f"❌ Database connection failed: {e}")
+            raise
+
+    def read_sql(query: str, params: list | tuple | None = None) -> pd.DataFrame:
+        conn = get_conn()
+        try:
+            if params:
+                return pd.read_sql(query, conn, params=params)
+            return pd.read_sql(query, conn)
+        except pyodbc.Error as e:
+            st.error(f"❌ Query failed: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def execute(query: str, params: list | tuple | None = None) -> None:
+        conn = get_conn()
+        try:
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            conn.commit()
+        except pyodbc.Error as e:
+            conn.rollback()
+            st.error(f"❌ Execute failed: {e}")
+            raise
+        finally:
+            conn.close()

@@ -1,8 +1,14 @@
 .env
-docker-compose.*
 __pycache__/
 *.pyc
-bev-prod.db
-production.db
-Dockerfile 
+
+# Deployment files (kept local)
+Dockerfile
+docker-compose.yaml
 docker-compose.yml
+DOCS.md
+migrate_to_sqlite.py
+Deploy.md
+# Uncomment the line below to EXCLUDE the SQLite demo DB from git.
+# By default it IS committed so Streamlit Cloud can find it.
+# production.db
