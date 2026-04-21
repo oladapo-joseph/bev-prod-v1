@@ -169,7 +169,7 @@ with st.sidebar:
     records_page = ["📁 Records"]
     shared_pages = ["📊 Shift Dashboard"] if role == "engineer" else []
     all_pages = lead_pages + mgr_pages + eng_pages + shared_pages + records_page + admin_pages
-    page = st.radio("", all_pages, label_visibility="collapsed")
+    page = st.radio("", all_pages, label_visibility="collapsed", key="nav_radio")
 
     st.markdown("---")
     st.markdown("<div class='section-header'>Today at a glance</div>", unsafe_allow_html=True)
@@ -193,21 +193,17 @@ with st.sidebar:
     _open_ct  = int(_or["cnt"].iloc[0]) if _or["cnt"].iloc[0] else 0
     _unlinked = int(_ul["cnt"].iloc[0]) if _ul["cnt"].iloc[0] else 0
 
-    kpi_mini(f"{_packs:,}",  "Cases today",
+    kpi_mini(f"{_packs:,}", "Cases today",
              "warn" if (_tgt > 0 and _eff < 85) else "")
-    kpi_mini(f"{_eff}%",     "Efficiency",
+    kpi_mini(f"{_eff}%",    "Efficiency",
              "danger" if _eff < 70 else "warn" if _eff < 85 else "")
-    kpi_mini(f"{_open_ct}",  "Open runs",
-             "warn" if _open_ct > 0 else "")
-    kpi_mini(f"{_fc}",       "Faults",
-             "danger" if _fc >= 10 else "warn" if _fc > 0 else "")
-    kpi_mini(f"{_dt}m",      "Downtime",
-             "danger" if _dt > 120 else "warn" if _dt > 60 else "")
-    kpi_mini(f"{_unlinked}", "Unlinked faults",
-             "warn" if _unlinked > 0 else "")
+
+    kpi_mini(f"{_open_ct}", "Open runs", "warn" if _open_ct > 0 else "")
+    kpi_mini(f"{_fc}", "Faults", "danger" if _fc >= 10 else "warn" if _fc > 0 else "")
+    kpi_mini(f"{_dt}m", "Downtime", "danger" if _dt > 120 else "warn" if _dt > 60 else "")
+    kpi_mini(f"{_unlinked}", "Unlinked faults", "warn" if _unlinked > 0 else "")
 
     st.markdown("---")
-    theme_toggle()
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     st.markdown("<div class='logout-btn'>", unsafe_allow_html=True)
     if st.button("🚪  Logout", use_container_width=True, key='logout-btn'):

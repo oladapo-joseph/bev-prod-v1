@@ -147,12 +147,13 @@ def render():
 
     # Plant-wide OEE for today (aggregate across all closed runs)
     if not today_closed.empty:
-        _plan  = float(today_closed["plan_time_hrs"].fillna(8).sum())
-        _act   = float(today_closed["actual_time_hrs"].fillna(0).sum())
-        _prod  = int(today_closed["packs_produced"].fillna(0).sum())
-        _tgt   = int(today_closed["packs_target"].fillna(0).sum())
-        _rej   = int(today_closed["packs_rejected"].fillna(0).sum()) if "packs_rejected" in today_closed.columns else 0
-        plant_oee = calc_oee(_plan, _act, _prod, _tgt, _rej)
+        _plan     = float(today_closed["plan_time_hrs"].fillna(8).sum())
+        _act      = float(today_closed["actual_time_hrs"].fillna(0).sum())
+        _prod     = int(today_closed["packs_produced"].fillna(0).sum())
+        _tgt      = int(today_closed["packs_target"].fillna(0).sum())
+        _rej      = int(today_closed["packs_rejected"].fillna(0).sum()) if "packs_rejected" in today_closed.columns else 0
+        _down_hrs = tdt / 60.0
+        plant_oee = calc_oee(_plan, _act, _prod, _tgt, _rej, _down_hrs)
     else:
         plant_oee = dict(oee=0.0, availability=0.0, performance=0.0, quality=0.0)
 
@@ -160,8 +161,8 @@ def render():
     _kpis = [
         (f"{len(open_today)}/8",  "Lines Running",   "var(--accent)"),
         (f"{lines_done}/8",       "Lines Done",      "var(--manager)"),
-        (f"{tp:,}",               "Cases Produced",  "var(--accent)" if te >= 85 else "var(--warn)"),
-        (f"{te}%",                "Plant Efficiency","var(--accent)" if te >= 85 else ("var(--warn)" if te >= 70 else "var(--red)")),
+        (f"{tp:,}",                      "Cases Produced", "var(--accent)" if te >= 85 else "var(--warn)"),
+        (f"{plant_oee['oee']}%",         "Plant OEE",      "var(--accent)" if plant_oee['oee'] >= 85 else ("var(--warn)" if plant_oee['oee'] >= 65 else "var(--red)")),
         (str(tfc),                "Faults Today",    "var(--red)" if tfc > 5 else ("var(--warn)" if tfc > 2 else "var(--accent)")),
         (str(unlinked_cnt),       "Unlinked Faults", "var(--warn)" if unlinked_cnt > 0 else "var(--accent)"),
     ]
@@ -306,7 +307,7 @@ def render():
                 ln_run_hrs    = sum(_safe_float(r, "actual_time_hrs") for _, r in lp_closed.iterrows())
                 ln_plan_hrs   = sum(_safe_float(r, "plan_time_hrs") or 8.0 for _, r in lp_closed.iterrows())
                 ln_rejected   = sum(_safe_int(r, "packs_rejected") for _, r in lp_closed.iterrows())
-                ln_oee        = calc_oee(ln_plan_hrs, ln_run_hrs, ln_produced, ln_target, ln_rejected)
+                ln_oee        = calc_oee(ln_plan_hrs, ln_run_hrs, ln_produced, ln_target, ln_rejected, ln_fdt / 60.0)
                 n_runs        = len(lp_closed)
                 fdt_col       = "var(--red)" if ln_fdt > 30 else ("var(--warn)" if ln_fdt > 0 else "var(--accent)")
                 fc_col        = "var(--red)" if ln_fc > 5   else ("var(--warn)" if ln_fc > 0 else "var(--accent)")
@@ -373,13 +374,12 @@ def render():
                     plan_hrs_m   = _safe_float(row, "plan_time_hrs") or 8.0
                     rejected_m   = _safe_int(row, "packs_rejected")
                     handover     = _safe(row, "handover_note")
-                    e            = efficiency(produced, target)
-                    col          = eff_color(e)
-                    oee_m        = calc_oee(plan_hrs_m, actual_hrs, produced, target, rejected_m)
-
                     rf  = df_f[df_f["production_run_id"] == rid] if (rid is not None and not df_f.empty and "production_run_id" in df_f.columns) else pd.DataFrame()
                     fdt = int(rf["downtime_minutes"].sum()) if not rf.empty else 0
                     fc2 = len(rf)
+                    e   = efficiency(produced, target)
+                    col = eff_color(e)
+                    oee_m = calc_oee(plan_hrs_m, actual_hrs, produced, target, rejected_m, fdt / 60.0)
 
                     exp_label = "%s %s · %s %s · %s%s | %s%% | %s cases | %s\u2192%s" % (
                         prod_name_s, flavor_s, pack_s, pkg_s,
@@ -514,12 +514,18 @@ def render():
 
     # ── Tab 3: Weekly Trends ──────────────────────────────────────────────────
     with t3:
-        st.markdown("#### Weekly Production Trend (last 14 days)")
+        st.markdown("#### Production Trends")
+        tr1, tr2 = st.columns(2)
+        with tr1: t_from = st.date_input("From", value=date.today() - timedelta(days=14), key="t_from")
+        with tr2: t_to   = st.date_input("To",   value=date.today(),                      key="t_to")
+
         if closed_prod.empty:
             st.info("No closed runs yet.")
         else:
-            cutoff = pd.Timestamp(date.today()) - pd.Timedelta(days=14)
-            wp     = closed_prod[closed_prod["record_date"] >= cutoff].copy()
+            wp = closed_prod[
+                (closed_prod["record_date"] >= pd.Timestamp(t_from)) &
+                (closed_prod["record_date"] <= pd.Timestamp(t_to))
+            ].copy()
             if wp.empty:
                 st.info("Not enough data yet.")
             else:

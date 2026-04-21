@@ -241,18 +241,23 @@ def render():
     # TAB 3 — TRENDS
     # ══════════════════════════════════════════════════════════════════════════
     with tab_trends:
-        section_header("Daily downtime over the last 14 days")
+        section_header("Daily downtime trends")
 
-        t1, t2 = st.columns([2, 1])
-        with t1:
+        tf1, tf2 = st.columns(2)
+        with tf1: t_from_dt = st.date_input("From", value=production_day() - timedelta(days=13), key="t_from_dt")
+        with tf2: t_to_dt   = st.date_input("To",   value=production_day(),                       key="t_to_dt")
+
+        t3a, t3b = st.columns([2, 1])
+        with t3a:
             t_machine = st.selectbox(
                 "Machine / Area", ["All Machines"] + FAULT_MACHINES, key="t_machine"
             )
-        with t2:
+        with t3b:
             t_line = st.selectbox("Line", ["All Lines"] + [f"Line {i}" for i in LINES], key="t_line")
 
-        d_from = str(production_day() - timedelta(days=13))
-        tdf = _load_range(d_from, day)
+        d_from = str(t_from_dt)
+        d_to   = str(t_to_dt)
+        tdf = _load_range(d_from, d_to)
 
         if t_line != "All Lines":
             tdf = tdf[tdf["line_number"] == int(t_line.split(" ")[1])]
@@ -287,7 +292,7 @@ def render():
             s1, s2, s3 = st.columns(3)
             s1.metric("Peak Day Downtime",  f"{int(daily['Downtime (min)'].max())} min")
             s2.metric("Avg Daily Downtime", f"{daily['Downtime (min)'].mean():.0f} min")
-            s3.metric("Worst Fault Day",    str(daily["Downtime (min)"].idxmax()))
+            s3.metric("Worst Day",          str(daily["Downtime (min)"].idxmax()))
 
     # ══════════════════════════════════════════════════════════════════════════
     # TAB 4 — MTTR

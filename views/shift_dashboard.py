@@ -100,17 +100,26 @@ def render():
     # ── Plant-level KPIs ──────────────────────────────────────────────────────
     tp  = int(closed["packs_produced"].sum()) if not closed.empty else 0
     tt  = int(closed["packs_target"].sum())   if not closed.empty else 0
-    ov  = efficiency(tp, tt)
     tdt = int(fault_df["downtime_minutes"].sum()) if not fault_df.empty else 0
     tfc = len(fault_df)
     unlinked_ct = int(fault_df["production_run_id"].isna().sum()) if not fault_df.empty else 0
 
+    # Plant OEE — aggregate across all closed runs
+    if not closed.empty:
+        _act_hrs  = float(closed["actual_time_hrs"].fillna(0).sum())
+        _rej      = int(closed["packs_rejected"].fillna(0).sum())
+        _down_hrs = tdt / 60.0
+        _plant_oee = calc_oee(_act_hrs, _act_hrs, tp, tt, _rej, _down_hrs)
+    else:
+        _plant_oee = {"oee": 0.0}
+    ov = _plant_oee["oee"]
+
     k1, k2, k3, k4, k5 = st.columns(5)
-    with k1: kpi_card(f"{len(open_)}",  "Active Runs",       "warn" if not open_.empty else "")
+    with k1: kpi_card(f"{len(open_)}",  "Active Runs",    "warn" if not open_.empty else "")
     with k2: kpi_card(f"{tp:,}",        "Cases Produced")
-    with k3: kpi_card(f"{ov}%",         "Overall Efficiency", "warn" if ov < 85 else "")
-    with k4: kpi_card(tfc,              "Total Faults",       "danger" if tfc >= 10 else "warn" if tfc > 0 else "")
-    with k5: kpi_card(f"{tdt} min",     "Total Downtime",     "warn" if tdt > 60 else "")
+    with k3: kpi_card(f"{ov}%",         "OEE",            "danger" if ov < 65 else ("warn" if ov < 85 else ""))
+    with k4: kpi_card(tfc,              "Total Faults",   "danger" if tfc >= 10 else "warn" if tfc > 0 else "")
+    with k5: kpi_card(f"{tdt} min",     "Total Downtime", "warn" if tdt > 60 else "")
 
     if unlinked_ct > 0:
         st.markdown(
@@ -221,7 +230,7 @@ def render():
             ln_plan_hrs   = sum(_f(r.get("plan_time_hrs"), 8.0) for _, r in lp.iterrows())
             ln_actual_hrs = sum(_f(r.get("actual_time_hrs"), 0.0) for _, r in lp.iterrows())
             ln_rejected   = sum(_i(r.get("packs_rejected")) for _, r in lp.iterrows())
-            ln_oee        = calc_oee(ln_plan_hrs, ln_actual_hrs, ln_produced, ln_target, ln_rejected)
+            ln_oee        = calc_oee(ln_plan_hrs, ln_actual_hrs, ln_produced, ln_target, ln_rejected, ln_fdt / 60.0)
 
             fdt_col = "var(--red)" if ln_fdt > 30 else ("var(--warn)" if ln_fdt > 0 else "var(--accent)")
             fc_col  = "var(--red)" if ln_fc > 5   else ("var(--warn)" if ln_fc > 0 else "var(--accent)")
@@ -286,7 +295,7 @@ def render():
                 handover     = _s(row.get("handover_note"))
                 e            = efficiency(produced, target)
                 col          = eff_color(e)
-                oee_r        = calc_oee(plan_hrs_r, actual_hrs, produced, target, rejected_r)
+                oee_r        = calc_oee(plan_hrs_r, actual_hrs, produced, target, rejected_r, fdt / 60.0)
 
                 # Faults for this specific run
                 lf = fault_df[fault_df["production_run_id"] == rid] if (rid is not None and not fault_df.empty) else pd.DataFrame()

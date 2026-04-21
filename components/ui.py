@@ -29,42 +29,36 @@ def calc_oee(
     packs_produced: int,
     packs_target: int,
     packs_rejected: int,
+    down_hrs: float = 0.0,
 ) -> dict:
     """
-    OEE = Performance × Quality   (Availability = 100% by design)
+    OEE = Availability × Performance × Quality
 
-    Since plan_time = actual_time for each run, Availability is always 1.0.
-    This means OEE reflects purely how fast the line ran vs its ideal rate
-    and what fraction of output was good — which is the meaningful measure
-    for a bottling line where downtime is tracked separately.
-
-    Ideal Rate  = packs_target / actual_hrs  (cases/hr at full speed)
-    Performance = packs_produced / (actual_hrs × ideal_rate)
-                = packs_produced / packs_target   (simplifies cleanly)
-    Quality     = (packs_produced - packs_rejected) / packs_produced
-    OEE         = Performance × Quality
+    Availability = (actual_run_time - downtime) / actual_run_time
+    Performance  = packs_produced / packs_target
+    Quality      = good_packs / packs_produced
     """
     if actual_hrs <= 0 or packs_target <= 0:
         return dict(availability=100.0, performance=0.0, quality=0.0, oee=0.0)
 
-    # Availability always 100% (plan = actual by design)
-    availability = 1.0
+    # Availability: net productive time as a fraction of total run time
+    net_hrs      = max(actual_hrs - down_hrs, 0.0)
+    availability = net_hrs / actual_hrs  # 0.0 – 1.0
 
-    # Performance: how much was produced vs what the line should have produced
-    # Using packs_target as the ideal output for the run duration
+    # Performance: output vs target for the run window
     performance = min(packs_produced / packs_target, 1.0)
 
-    # Quality: fraction of good (non-rejected) output
+    # Quality: fraction of non-rejected output
     good_packs = max(packs_produced - packs_rejected, 0)
-    quality = (good_packs / packs_produced) if packs_produced > 0 else 0.0
+    quality    = (good_packs / packs_produced) if packs_produced > 0 else 0.0
 
     oee = availability * performance * quality
 
     return dict(
-        availability = 100.0,
-        performance  = round(performance * 100, 1),
-        quality      = round(quality     * 100, 1),
-        oee          = round(oee         * 100, 1),
+        availability = round(availability * 100, 1),
+        performance  = round(performance  * 100, 1),
+        quality      = round(quality      * 100, 1),
+        oee          = round(oee          * 100, 1),
     )
 
 
@@ -76,37 +70,32 @@ def oee_color(oee: float) -> str:
 
 
 def oee_badge(oee_dict: dict) -> str:
-    """
-    Render OEE breakdown badge. Availability is omitted since it is
-    always 100% by design (plan = actual). Shows OEE, Performance, Quality.
-    """
-    col = oee_color(oee_dict["oee"])
+    """Render OEE breakdown badge — OEE headline + Availability, Performance, Quality."""
+    col      = oee_color(oee_dict["oee"])
+    avail    = oee_dict["availability"]
+    avail_col= "var(--accent)" if avail >= 90 else ("var(--warn)" if avail >= 75 else "var(--red)")
     perf_col = oee_color(oee_dict["performance"])
     qual_col = "var(--accent)" if oee_dict["quality"] >= 99 else ("var(--warn)" if oee_dict["quality"] >= 95 else "var(--red)")
+    sep      = "<div style='width:1px;background:var(--border);align-self:stretch'></div>"
+    def _cell(val, label, color):
+        return (
+            f"<div style='text-align:center'>"
+            f"<div style='font-family:Space Mono,monospace;font-size:.95rem;color:{color}'>{val}%</div>"
+            f"<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px'>{label}</div>"
+            f"</div>"
+        )
     return (
         "<div style='display:flex;gap:20px;flex-wrap:wrap;align-items:center;"
         "background:var(--surface2);border:1px solid var(--border);"
         "border-radius:8px;padding:10px 16px;margin-top:8px'>"
-        # OEE — headline figure
-        "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:1.25rem;"
-        "font-weight:700;color:%s'>%s%%</div>"
-        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase;"
-        "letter-spacing:.8px'>OEE</div></div>"
-        "<div style='width:1px;background:var(--border);align-self:stretch'></div>"
-        # Performance
-        "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:%s'>%s%%</div>"
-        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Performance</div></div>"
-        # Quality
-        "<div style='text-align:center'>"
-        "<div style='font-family:Space Mono,monospace;font-size:.95rem;color:%s'>%s%%</div>"
-        "<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase'>Quality</div></div>"
+        f"<div style='text-align:center'>"
+        f"<div style='font-family:Space Mono,monospace;font-size:1.25rem;font-weight:700;color:{col}'>{oee_dict['oee']}%</div>"
+        f"<div style='font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px'>OEE</div></div>"
+        f"{sep}"
+        f"{_cell(avail, 'Availability', avail_col)}"
+        f"{_cell(oee_dict['performance'], 'Performance', perf_col)}"
+        f"{_cell(oee_dict['quality'], 'Quality', qual_col)}"
         "</div>"
-    ) % (
-        col, oee_dict["oee"],
-        perf_col, oee_dict["performance"],
-        qual_col, oee_dict["quality"],
     )
 
 
@@ -435,6 +424,7 @@ h1,h2,h3,h4,h5,h6{
 div[data-testid="stTab"] button{font-family:'Space Mono',monospace!important;font-size:0.75rem!important;}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
 .chart-title{font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;}
+
 /* Logout button override */
 .logout-btn > button{background:#ff475720!important;color:var(--red)!important;border:1px solid var(--red)!important;font-family:'Space Mono',monospace!important;font-size:0.78rem!important;font-weight:700!important;padding:6px 16px!important;border-radius:8px!important;width:100%!important;transition:all 0.2s!important;}
 .logout-btn > button:hover{background:var(--red)!important;color:#fff!important;}
