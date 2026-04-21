@@ -99,16 +99,17 @@ def render(username: str, full_name: str):
     n_open         = len(open_runs)
     unlinked_ct    = int(faults["production_run_id"].isna().sum()) if not faults.empty else 0
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    with k1: kpi_card(n_closed,             "Runs Closed")
+    k1, k2, k3 = st.columns(3)
+    with k1: kpi_card(n_closed,              "Runs Closed")
     with k2: kpi_card(f"{total_produced:,}", "Cases Produced")
     with k3: kpi_card(f"{overall_eff}%",     "Efficiency",
                       "danger" if overall_eff < 70 else "warn" if overall_eff < 85 else "")
+    k4, k5, k6 = st.columns(3)
     with k4: kpi_card(total_faults,          "Faults",
                       "danger" if total_faults >= 10 else "warn" if total_faults > 0 else "")
     with k5: kpi_card(f"{total_dt} min",     "Total Downtime",
                       "danger" if total_dt > 120 else "warn" if total_dt > 60 else "")
-    with k6: kpi_card(n_open,               "Open Runs",
+    with k6: kpi_card(n_open,                "Open Runs",
                       "warn" if n_open > 0 else "")
 
     # ══════════════════════════════════════════════════════════════════════════

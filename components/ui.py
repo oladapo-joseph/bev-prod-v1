@@ -431,7 +431,7 @@ h1,h2,h3,h4,h5,h6{
 .metric-card.warn::before{background:var(--warn);}
 .metric-card.danger::before{background:var(--red);}
 .metric-card.manager::before{background:var(--manager);}
-.metric-value{font-family:'Space Mono',monospace;font-size:2rem;font-weight:700;color:var(--accent);line-height:1;}
+.metric-value{font-family:'Space Mono',monospace;font-size:2rem;font-weight:700;color:var(--accent);line-height:1.1;word-break:break-word;}
 .metric-label{font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;}
 
 .line-badge{display:inline-block;background:#00e5a015;border:1px solid var(--accent);color:var(--accent);font-family:'Space Mono',monospace;font-size:0.7rem;padding:2px 10px;border-radius:20px;}
