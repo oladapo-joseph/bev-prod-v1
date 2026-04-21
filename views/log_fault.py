@@ -129,6 +129,31 @@ def render(username: str, full_name: str):
         key=f"fnotes_{ffk}",
     )
 
+    # ── Downtime sanity check against run duration ────────────────────────────
+    if active_run_id and downtime > 0:
+        try:
+            run_info = read_sql(
+                "SELECT run_start, SUM(f.downtime_minutes) as existing_dt "
+                "FROM production_runs p "
+                "LEFT JOIN fault_records f ON f.production_run_id = p.id "
+                "WHERE p.id = ? GROUP BY p.run_start",
+                params=[active_run_id],
+            )
+            if not run_info.empty:
+                from datetime import datetime as _dt
+                run_start_str = str(run_info.iloc[0]["run_start"])[:19]
+                elapsed_min = (_dt.now() - _dt.strptime(run_start_str, "%Y-%m-%d %H:%M:%S")).total_seconds() / 60
+                existing_dt = float(run_info.iloc[0]["existing_dt"] or 0)
+                total_dt = existing_dt + downtime
+                if total_dt > elapsed_min:
+                    st.warning(
+                        f"⚠️ Total downtime for this run would be **{total_dt:.0f} min** "
+                        f"but the run has only been active **{elapsed_min:.0f} min**. "
+                        f"Double-check the downtime value."
+                    )
+        except Exception:
+            pass
+
     # ── Validation ────────────────────────────────────────────────────────────
     _ph = ("— Select Machine —", "— Select Detail —", "— Select Machine first —", None)
     _future_time = bool(fault_time_input and fault_time_input > datetime.now().time())

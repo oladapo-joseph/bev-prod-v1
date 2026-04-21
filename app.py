@@ -4,7 +4,6 @@ Run with: streamlit run app.py
 """
 
 import streamlit as st
-from datetime import date
 
 st.set_page_config(
     page_title="Ritefoods Limited — Production",
@@ -12,13 +11,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-from db    import init_db
-from auth  import authenticate, require_login, current_user, logout
-from auth import production_day, current_shift
-from config import read_sql
-from components.ui import inject_css, kpi_mini, efficiency, theme_toggle
-from data.reference import LINES, SHIFTS
 
 import views.log_production   as log_production
 import views.log_fault        as log_fault
@@ -28,6 +20,14 @@ import views.records          as records
 import views.manager_overview as manager_overview
 import views.user_management  as user_management
 import views.engineer_faults  as engineer_faults
+
+
+from db    import init_db
+from auth  import authenticate, require_login, current_user, logout
+from auth import production_day, current_shift
+from config import read_sql
+from components.ui import inject_css, kpi_mini, efficiency, theme_toggle
+
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 inject_css()

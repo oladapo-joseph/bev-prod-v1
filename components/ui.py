@@ -191,16 +191,31 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
             down_hrs   = round(int(lf["downtime_minutes"].sum()) / 60, 2) if not lf.empty else 0.0
             actual_hrs = round(plan_hrs - down_hrs, 2)
 
+        rej_packs = int(lp["packs_rejected"].fillna(0).sum()) \
+            if not lp.empty and "packs_rejected" in lp.columns else 0
+        oee_dict = calc_oee(plan_hrs, actual_hrs, actual_packs, plan_packs, rej_packs, down_hrs)
         rows[ln] = dict(
             plan_hrs=plan_hrs, actual_hrs=actual_hrs, down_hrs=down_hrs,
             plan_packs=plan_packs, actual_packs=actual_packs,
             loss_packs=loss_packs,
             eff=efficiency(actual_packs, plan_packs),
+            oee=oee_dict["oee"],
+            availability=oee_dict["availability"],
+            performance=oee_dict["performance"],
+            quality=oee_dict["quality"],
         )
 
     tot = {k: sum(rows[ln][k] for ln in LINES)
            for k in ["plan_hrs", "actual_hrs", "down_hrs", "plan_packs", "actual_packs", "loss_packs"]}
     tot["eff"] = efficiency(tot["actual_packs"], tot["plan_packs"])
+    _tot_oee = calc_oee(
+        tot["plan_hrs"], tot["actual_hrs"],
+        tot["actual_packs"], tot["plan_packs"], 0, tot["down_hrs"],
+    )
+    tot["oee"]          = _tot_oee["oee"]
+    tot["availability"] = _tot_oee["availability"]
+    tot["performance"]  = _tot_oee["performance"]
+    tot["quality"]      = _tot_oee["quality"]
 
     def _fmt(v, is_hrs=False, is_neg=False):
         if v == 0:
@@ -224,14 +239,21 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
         cells += f"<td class='{tot_cls}'>{_fmt(tv, is_hrs, is_neg)}</td>"
         return f"<tr><td class='label'>{label}</td><td class='uom'>{uom}</td>{cells}</tr>"
 
-    eff_cells = ""
-    for ln in LINES:
-        e = rows[ln]["eff"]
-        cls = _eff_cls(e)
-        eff_cells += f"<td class='{cls}'>{e}%</td>" if rows[ln]["plan_packs"] > 0 else "<td class='eff-red'>—</td>"
-    tot_eff = tot["eff"]
-    tot_eff_cls = _eff_cls(tot_eff)
-    eff_cells += f"<td class='{tot_eff_cls} total'>{tot_eff}%</td>"
+    def _pct_cells(key):
+        cells = ""
+        for ln in LINES:
+            v = rows[ln][key]
+            cls = _eff_cls(v)
+            cells += f"<td class='{cls}'>{v}%</td>" if rows[ln]["plan_packs"] > 0 else "<td class='eff-red'>—</td>"
+        tv = tot[key]
+        cells += f"<td class='{_eff_cls(tv)} total'>{tv}%</td>"
+        return cells
+
+    eff_cells = _pct_cells("eff")
+    oee_cells = _pct_cells("oee")
+    avl_cells = _pct_cells("availability")
+    prf_cells = _pct_cells("performance")
+    qlt_cells = _pct_cells("quality")
 
     line_hdrs = "".join(f"<th>LINE #{ln}</th>" for ln in LINES)
     html = f"""
@@ -239,13 +261,29 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
     <table class='report-table'>
       <thead><tr><th style='text-align:left'>Metric</th><th>UOM</th>{line_hdrs}<th>Total</th></tr></thead>
       <tbody>
-        {_row("Plan Time",          "hrs",   "plan_hrs",    is_hrs=True)}
-        {_row("Actual Time",        "hrs",   "actual_hrs",  is_hrs=True)}
-        {_row("Down Time",          "hrs",   "down_hrs",    is_hrs=True, is_neg=True)}
-        {_row("Plan Production",    "Packs", "plan_packs")}
-        {_row("Actual Production",  "Packs", "actual_packs")}
-        {_row("Production Loss / Gain", "Packs", "loss_packs",  is_neg=True)}
+        {_row("Plan Time",              "hrs",   "plan_hrs",   is_hrs=True)}
+        {_row("Actual Time",            "hrs",   "actual_hrs", is_hrs=True)}
+        {_row("Down Time",              "hrs",   "down_hrs",   is_hrs=True, is_neg=True)}
+        {_row("Plan Production",        "Packs", "plan_packs")}
+        {_row("Actual Production",      "Packs", "actual_packs")}
+        {_row("Production Loss / Gain", "Packs", "loss_packs", is_neg=True)}
         <tr><td class='label'>Line Efficiency</td><td class='uom'>%</td>{eff_cells}</tr>
+        <tr style='border-top:2px solid var(--border)'>
+          <td class='label' style='font-weight:700;color:var(--accent)'>OEE</td>
+          <td class='uom'>%</td>{oee_cells}
+        </tr>
+        <tr>
+          <td class='label' style='padding-left:20px;font-size:.78rem;color:var(--muted)'>↳ Availability</td>
+          <td class='uom' style='font-size:.78rem'>%</td>{avl_cells}
+        </tr>
+        <tr>
+          <td class='label' style='padding-left:20px;font-size:.78rem;color:var(--muted)'>↳ Performance</td>
+          <td class='uom' style='font-size:.78rem'>%</td>{prf_cells}
+        </tr>
+        <tr>
+          <td class='label' style='padding-left:20px;font-size:.78rem;color:var(--muted)'>↳ Quality</td>
+          <td class='uom' style='font-size:.78rem'>%</td>{qlt_cells}
+        </tr>
       </tbody>
     </table></div>"""
     st.markdown(html, unsafe_allow_html=True)
@@ -259,6 +297,10 @@ def build_report(prod_df, fault_df, title: str = "Production Summary Report"):
         ("Actual Production (Packs)",  "actual_packs"),
         ("Production Loss (Packs)",    "loss_packs"),
         ("Line Efficiency (%)",        "eff"),
+        ("OEE (%)",                    "oee"),
+        ("Availability (%)",           "availability"),
+        ("Performance (%)",            "performance"),
+        ("Quality (%)",                "quality"),
     ]
     export = []
     for label, key in metrics:

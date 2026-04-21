@@ -8,6 +8,8 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 
+from reports.pdf_report import build_production_pdf
+
 from auth import production_day, current_shift
 from config import read_sql
 from data.reference import LINES, SHIFTS, FAULT_MACHINES
@@ -582,6 +584,47 @@ def render():
                     }), use_container_width=True, hide_index=True,
                 )
 
+                # ── SKU / Product breakdown ───────────────────────────────────
+                st.markdown("<br>", unsafe_allow_html=True)
+                section_header("Performance by SKU")
+                sku_cols = [c for c in ["product_name","flavor","pack_size","packaging",
+                                        "packs_produced","packs_target"] if c in wp.columns]
+                sku_df = wp[sku_cols].copy()
+                sku_df["sku"] = (
+                    sku_df["product_name"].fillna("") + " " +
+                    sku_df.get("flavor", pd.Series("", index=sku_df.index)).fillna("") + " · " +
+                    sku_df.get("pack_size", pd.Series("", index=sku_df.index)).fillna("") + " " +
+                    sku_df.get("packaging", pd.Series("", index=sku_df.index)).fillna("")
+                ).str.strip()
+                sku_grp = sku_df.groupby("sku").agg(
+                    Runs=("packs_produced", "count"),
+                    Total_Produced=("packs_produced", "sum"),
+                    Total_Target=("packs_target", "sum"),
+                ).reset_index()
+                sku_grp["Efficiency %"] = sku_grp.apply(
+                    lambda r: efficiency(int(r["Total_Produced"] or 0), int(r["Total_Target"] or 0)), axis=1
+                )
+                sku_grp["Gap (cases)"] = (sku_grp["Total_Target"] - sku_grp["Total_Produced"]).astype(int)
+                sku_grp = sku_grp.sort_values("Efficiency %").reset_index(drop=True)
+                sku_grp = sku_grp.rename(columns={
+                    "sku": "SKU", "Total_Produced": "Produced", "Total_Target": "Target"
+                })
+                st.dataframe(
+                    sku_grp[["SKU","Runs","Produced","Target","Efficiency %","Gap (cases)"]],
+                    use_container_width=True, hide_index=True,
+                )
+                worst_sku = sku_grp.iloc[0]
+                if worst_sku["Efficiency %"] < 85:
+                    st.markdown(
+                        f"<div style='background:#ff475712;border:1px solid var(--red);"
+                        f"border-radius:8px;padding:10px 16px;font-size:.83rem'>"
+                        f"⚠️ Lowest performing SKU: <b style='color:var(--red)'>{worst_sku['SKU']}</b> "
+                        f"at <b style='color:var(--red)'>{worst_sku['Efficiency %']}%</b> — "
+                        f"{int(worst_sku['Gap (cases)'])} cases below target across {int(worst_sku['Runs'])} run(s)."
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
     # ── Tab 4: Fault Analysis ─────────────────────────────────────────────────
     with t4:
         st.markdown("#### Fault Analysis")
@@ -694,3 +737,29 @@ def render():
             period_lbl = f"{r_from} to {r_to}" if r_from != r_to else str(r_from)
             shift_lbl  = r_shift if r_shift != "All Shifts" else "All Shifts"
             build_report(r_prod, r_faults, title=f"Production Report \u00b7 {period_lbl} \u00b7 {shift_lbl}")
+
+            st.markdown("---")
+            section_header("Export Management Report")
+            st.markdown(
+                "<div style='font-size:.82rem;color:var(--muted);margin-bottom:12px'>"
+                "Professional PDF report for presentation to management — includes KPI summary, "
+                "per-line performance, SKU breakdown, fault analysis, and shift comparison.</div>",
+                unsafe_allow_html=True,
+            )
+            _pdf_col, _ = st.columns([1, 3])
+            with _pdf_col:
+                try:
+                    _pdf_bytes = build_production_pdf(
+                        r_prod, r_faults, r_from, r_to, shift_lbl
+                    )
+                    _pdf_fname = f"production_report_{str(r_from)}_{str(r_to)}.pdf".replace(" ", "_")
+                    st.download_button(
+                        "\U0001f4c4  Download PDF Report",
+                        data=_pdf_bytes,
+                        file_name=_pdf_fname,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="pdf_dl_btn",
+                    )
+                except Exception as _pdf_err:
+                    st.error(f"PDF generation failed: {_pdf_err}")

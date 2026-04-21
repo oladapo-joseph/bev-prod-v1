@@ -14,6 +14,7 @@ Hierarchy:
           └── fault table
 """
 
+import io
 import streamlit as st
 import pandas as pd
 import math
@@ -41,6 +42,83 @@ def _eff_dt(df: pd.DataFrame) -> pd.Series:
     if not df.empty and "actual_downtime_minutes" in df.columns:
         return df["actual_downtime_minutes"].fillna(df["downtime_minutes"])
     return df["downtime_minutes"]
+
+
+def _build_shift_excel(date_str: str, shift_label: str, closed: pd.DataFrame, fault_df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+
+        # ── Sheet 1: Summary ────────────────────────────────────────────────
+        tp  = int(closed["packs_produced"].sum()) if not closed.empty else 0
+        tt  = int(closed["packs_target"].sum())   if not closed.empty else 0
+        rej = int(closed["packs_rejected"].fillna(0).sum()) if not closed.empty else 0
+        tdt = int(_eff_dt(fault_df).sum())        if not fault_df.empty else 0
+        tfc = len(fault_df)
+        eff_val = efficiency(tp, tt)
+
+        summary = pd.DataFrame([
+            {"Metric": "Date",              "Value": date_str},
+            {"Metric": "Shift",             "Value": shift_label},
+            {"Metric": "Total Cases",       "Value": tp},
+            {"Metric": "Target Cases",      "Value": tt},
+            {"Metric": "Rejected Cases",    "Value": rej},
+            {"Metric": "Efficiency %",      "Value": eff_val},
+            {"Metric": "Total Downtime (min)", "Value": tdt},
+            {"Metric": "Total Faults",      "Value": tfc},
+            {"Metric": "Lines Running",     "Value": closed["line_number"].nunique() if not closed.empty else 0},
+        ])
+        summary.to_excel(writer, sheet_name="Summary", index=False)
+
+        # ── Sheet 2: Per-Line Breakdown ──────────────────────────────────────
+        line_rows = []
+        for ln in sorted(closed["line_number"].unique()) if not closed.empty else []:
+            lp = closed[closed["line_number"] == ln]
+            ln_run_ids = lp["id"].tolist()
+            lf = fault_df[fault_df["production_run_id"].isin(ln_run_ids)] if not fault_df.empty else pd.DataFrame()
+            ln_prod   = int(lp["packs_produced"].sum())
+            ln_target = int(lp["packs_target"].sum())
+            ln_rej    = int(lp["packs_rejected"].fillna(0).sum())
+            ln_fdt    = int(_eff_dt(lf).sum()) if not lf.empty else 0
+            ln_eff    = efficiency(ln_prod, ln_target)
+            ln_hrs    = round(float(lp["actual_time_hrs"].fillna(0).sum()), 2)
+            oee       = calc_oee(ln_hrs, ln_hrs, ln_prod, ln_target, ln_rej, ln_fdt / 60)
+            line_rows.append({
+                "Line":            ln,
+                "Runs":            len(lp),
+                "Cases Produced":  ln_prod,
+                "Target":          ln_target,
+                "Rejected":        ln_rej,
+                "Efficiency %":    ln_eff,
+                "OEE %":           oee["oee"],
+                "Downtime (min)":  ln_fdt,
+                "Faults":          len(lf),
+                "Run Hours":       ln_hrs,
+            })
+        pd.DataFrame(line_rows).to_excel(writer, sheet_name="Per-Line", index=False)
+
+        # ── Sheet 3: Fault Log ───────────────────────────────────────────────
+        if not fault_df.empty:
+            fault_export = fault_df[[c for c in [
+                "record_date", "shift", "line_number", "fault_time",
+                "fault_machine", "fault_detail", "downtime_minutes",
+                "actual_downtime_minutes", "status", "root_cause",
+                "reported_by", "notes", "engineer_notes", "closed_by",
+            ] if c in fault_df.columns]].copy()
+        else:
+            fault_export = pd.DataFrame()
+        fault_export.to_excel(writer, sheet_name="Fault Log", index=False)
+
+        # ── Sheet 4: Run Detail ──────────────────────────────────────────────
+        if not closed.empty:
+            run_cols = [c for c in [
+                "record_date", "shift", "line_number", "product_name", "flavor",
+                "pack_size", "packaging", "packs_produced", "packs_target",
+                "packs_rejected", "actual_time_hrs", "run_start", "run_end",
+                "operator_name", "handover_note",
+            ] if c in closed.columns]
+            closed[run_cols].to_excel(writer, sheet_name="Run Detail", index=False)
+
+    return buf.getvalue()
 
 
 def render():
@@ -135,6 +213,18 @@ def render():
             "⚠️ %d unlinked fault(s) — attach them when closing a run"
             "</span></div>" % unlinked_ct,
             unsafe_allow_html=True,
+        )
+
+    # ── Shift Report Export ───────────────────────────────────────────────────
+    if not closed.empty:
+        shift_label = dash_shift if dash_shift != "All Shifts" else "All Shifts"
+        _xlsx = _build_shift_excel(date_str, shift_label, closed, fault_df)
+        st.download_button(
+            "📊  Export Shift Report (Excel)",
+            data=_xlsx,
+            file_name=f"shift_report_{date_str}_{shift_label.replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="shift_export_btn",
         )
 
     st.markdown("---")

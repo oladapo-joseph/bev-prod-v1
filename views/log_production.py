@@ -388,13 +388,13 @@ def render(username: str):
                     if st.checkbox(label, key=f"fault_link_{f['id']}_{ck}"):
                         selected_fault_ids.append(int(f["id"]))
 
+            if packs_produced == 0:
+                st.warning("⚠️ A run cannot be closed with zero cases produced. Enter the actual pack count before submitting.")
             if packs_rejected > packs_produced > 0:
                 st.error("⛔ Packs rejected cannot exceed packs produced.")
 
             st.markdown("")
             close_ready = packs_produced > 0 and packs_rejected <= packs_produced
-            if not close_ready and packs_produced == 0:
-                st.info("Enter packs produced to close the run.")
 
             confirmed = False
             if close_ready:
@@ -431,6 +431,9 @@ def render(username: str):
                     )
 
             if st.button("\u2705  Close & Submit Run", disabled=not (close_ready and confirmed), key=f"cr_btn_{ck}"):
+                if packs_produced == 0:
+                    st.error("Cannot close a run with zero cases produced.")
+                    st.stop()
                 run_end    = _now_str()
                 actual_hrs = _hrs_between(str(run.run_start), run_end)
 
