@@ -30,6 +30,7 @@ dbt-sqlserver==1.9.0
 debugpy==1.8.20
 decorator==5.2.1
 deepdiff==8.6.2
+et_xmlfile==2.0.0
 executing==2.2.1
 extra-streamlit-components==0.1.81
 gitdb==4.0.12
@@ -59,6 +60,7 @@ narwhals==2.18.0
 nest-asyncio==1.6.0
 networkx==3.6.1
 numpy==2.4.3
+openpyxl==3.1.5
 orderly-set==5.5.0
 packaging==26.0
 pandas==2.3.3
@@ -88,6 +90,7 @@ pytz==2026.1.post1
 PyYAML==6.0.3
 pyzmq==27.1.0
 referencing==0.37.0
+reportlab==4.4.10
 requests==2.32.5
 rpds-py==0.30.0
 six==1.17.0
