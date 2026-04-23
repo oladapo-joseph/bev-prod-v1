@@ -20,6 +20,7 @@ import views.records          as records
 import views.manager_overview as manager_overview
 import views.user_management  as user_management
 import views.engineer_faults  as engineer_faults
+import views.line_targets     as line_targets
 
 
 from db    import init_db
@@ -162,7 +163,7 @@ with st.sidebar:
     st.markdown("<div class='section-header'>Navigation</div>", unsafe_allow_html=True)
 
     lead_pages  = ["📋 Log Production", "⚠️ Log Fault", "📊 Shift Dashboard", "🔄 Shift Handover"] if role in ("shift_lead", "admin") else []
-    mgr_pages   = ["🏭 Manager Overview"] if role in ("manager", "admin") else []
+    mgr_pages   = ["🏭 Manager Overview", "🎯 Line Targets"] if role in ("manager", "admin") else []
     eng_pages   = ["🔧 Fault Dashboard"]  if role in ("engineer", "admin") else []
     admin_pages = ["👤 User Management"]  if role == "admin" else []
     records_page = ["📁 Records"]
@@ -217,5 +218,6 @@ elif page == "📊 Shift Dashboard":  shift_dashboard.render()
 elif page == "🔄 Shift Handover":   shift_handover.render(uname, fname)
 elif page == "📁 Records":          records.render()
 elif page == "🏭 Manager Overview": manager_overview.render()
+elif page == "🎯 Line Targets":     line_targets.render(uname)
 elif page == "🔧 Fault Dashboard":  engineer_faults.render()
 elif page == "👤 User Management":  user_management.render()

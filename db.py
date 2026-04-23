@@ -121,6 +121,17 @@ CREATE TABLE shift_handovers (
     submitted_at NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120))
 )"""
 
+LINE_TARGETS_DDL_MSSQL = """
+CREATE TABLE line_targets (
+    id              INT IDENTITY(1,1) PRIMARY KEY,
+    line_number     INT           NOT NULL,
+    litres_per_hour FLOAT         NOT NULL,
+    effective_from  NVARCHAR(10)  NOT NULL,
+    set_by          NVARCHAR(50),
+    notes           NVARCHAR(300),
+    created_at      NVARCHAR(30)  DEFAULT (CONVERT(NVARCHAR, GETDATE(), 120))
+)"""
+
 
 # ── DDL — SQLite ──────────────────────────────────────────────────────────────
 
@@ -199,6 +210,17 @@ CREATE TABLE shift_handovers (
     submitted_at TEXT DEFAULT (datetime('now'))
 )"""
 
+LINE_TARGETS_DDL_SQLITE = """
+CREATE TABLE line_targets (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    line_number     INTEGER NOT NULL,
+    litres_per_hour REAL    NOT NULL,
+    effective_from  TEXT    NOT NULL,
+    set_by          TEXT,
+    notes           TEXT,
+    created_at      TEXT    DEFAULT (datetime('now'))
+)"""
+
 
 # ── Column migrations ─────────────────────────────────────────────────────────
 # Each entry: (column_name, mssql_type, sqlite_type)
@@ -230,6 +252,11 @@ FAULT_MIGRATIONS = [
     ("closed_at",               "NVARCHAR(30)",   "TEXT"),
 ]
 
+# Handles tables created before the litres_per_hour rename
+LINE_TARGETS_MIGRATIONS = [
+    ("litres_per_hour", "FLOAT", "REAL"),
+]
+
 DEFAULT_USERS = [
     ("admin",    "Admin User",    "admin",      "admin123"),
     ("manager1", "Plant Manager", "manager",    "manager123"),
@@ -249,6 +276,7 @@ def init_db():
             ("production_runs", RUNS_DDL_SQLITE),
             ("fault_records",   FAULTS_DDL_SQLITE),
             ("shift_handovers", HANDOVERS_DDL_SQLITE),
+            ("line_targets",    LINE_TARGETS_DDL_SQLITE),
         ]
     else:
         tables = [
@@ -256,6 +284,7 @@ def init_db():
             ("production_runs", RUNS_DDL_MSSQL),
             ("fault_records",   FAULTS_DDL_MSSQL),
             ("shift_handovers", HANDOVERS_DDL_MSSQL),
+            ("line_targets",    LINE_TARGETS_DDL_MSSQL),
         ]
 
     conn = get_conn()
@@ -275,6 +304,11 @@ def init_db():
         if not _column_exists(c, "fault_records", col):
             col_type = sqlite_type if is_sqlite else mssql_type
             c.execute(f"ALTER TABLE fault_records ADD {'COLUMN ' if is_sqlite else ''}{col} {col_type}")
+
+    for col, mssql_type, sqlite_type in LINE_TARGETS_MIGRATIONS:
+        if not _column_exists(c, "line_targets", col):
+            col_type = sqlite_type if is_sqlite else mssql_type
+            c.execute(f"ALTER TABLE line_targets ADD {'COLUMN ' if is_sqlite else ''}{col} {col_type}")
 
     # Backfill status for pre-migration rows
     c.execute("UPDATE fault_records SET status='open' WHERE status IS NULL")

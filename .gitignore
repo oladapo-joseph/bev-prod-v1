@@ -9,6 +9,9 @@ docker-compose.yml
 DOCS.md
 migrate_to_sqlite.py
 Deploy.md
+*.pptx
+*/build_pptx.py
+
 # Uncomment the line below to EXCLUDE the SQLite demo DB from git.
 # By default it IS committed so Streamlit Cloud can find it.
 # production.db

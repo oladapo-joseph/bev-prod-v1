@@ -15,7 +15,9 @@ from datetime import date, datetime
 
 from auth import production_day, current_shift
 from config import execute, read_sql
-from data.reference import LINES, SHIFTS, PRODUCTS, PRODUCT_NAMES, PRODUCT_NAME_TO_ID, get_target, get_run_target, HOURLY_TARGETS
+from data.reference import (LINES, SHIFTS, PRODUCTS, PRODUCT_NAMES, PRODUCT_NAME_TO_ID,
+                             get_target, get_run_target, get_line_litres,
+                             _cases_per_hour_from_litres, HOURLY_TARGETS)
 from components.ui import efficiency, eff_color, section_header, calc_oee, oee_badge
 
 _PH = (
@@ -102,10 +104,15 @@ def render(username: str):
         hourly_rate  = 0.0
         if product_name not in _PH and pack_size not in _PH and packaging not in _PH:
             auto_target = get_target(product_name, pack_size, packaging)
-            try:
-                hourly_rate = HOURLY_TARGETS[product_name][pack_size][packaging]
-            except KeyError:
-                hourly_rate = 0.0
+            if isinstance(line, int):
+                lph = get_line_litres(line)
+                if lph > 0:
+                    hourly_rate = _cases_per_hour_from_litres(lph, pack_size, packaging)
+            if not hourly_rate:
+                try:
+                    hourly_rate = HOURLY_TARGETS[product_name][pack_size][packaging]
+                except KeyError:
+                    hourly_rate = 0.0
 
         if hourly_rate:
             st.markdown(f"""
@@ -208,13 +215,20 @@ def render(username: str):
                     elapsed    = 0.0
                     elapsed_str = ""
                 live_target = get_run_target(
-                    r["product_name"], r.get("pack_size") or "", r.get("packaging") or "", max(elapsed, 0.1)
+                    r["product_name"], r.get("pack_size") or "", r.get("packaging") or "",
+                    max(elapsed, 0.1), line_number=int(r["line_number"]),
                 )
-                try:
-                    cph = HOURLY_TARGETS[r["product_name"]][r.get("pack_size") or ""][r.get("packaging") or ""]
-                    rate_str = f"{cph:,.0f} cases/hr"
-                except KeyError:
-                    rate_str = ""
+                lph = get_line_litres(int(r["line_number"]))
+                if lph > 0:
+                    cph = _cases_per_hour_from_litres(
+                        lph, r.get("pack_size") or "", r.get("packaging") or ""
+                    )
+                else:
+                    try:
+                        cph = HOURLY_TARGETS[r["product_name"]][r.get("pack_size") or ""][r.get("packaging") or ""]
+                    except KeyError:
+                        cph = 0.0
+                rate_str = f"{cph:,.0f} cases/hr" if cph else ""
                 st.markdown(f"""
                 <div class='metric-card' style='padding:14px 20px'>
                     <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>
@@ -322,7 +336,8 @@ def render(username: str):
                     elapsed_hrs = 8.0
                 plan_hrs_est  = max(elapsed_hrs, 0.1)
                 live_target   = get_run_target(
-                    run.product_name, run.pack_size or "", run.packaging or "", plan_hrs_est
+                    run.product_name, run.pack_size or "", run.packaging or "",
+                    plan_hrs_est, line_number=int(run.line_number),
                 ) or int(run.packs_target)
                 eff_ = efficiency(packs_produced, live_target)
                 col_ = eff_color(eff_)
@@ -408,7 +423,8 @@ def render(username: str):
                     except Exception:
                         _elapsed = 0.0
                     _preview_target = get_run_target(
-                        run.product_name, run.pack_size or "", run.packaging or "", max(_elapsed, 0.1)
+                        run.product_name, run.pack_size or "", run.packaging or "",
+                        max(_elapsed, 0.1), line_number=int(run.line_number),
                     ) or int(run.packs_target)
                     _prev_eff = efficiency(packs_produced, _preview_target)
                     _opening_target = int(run.packs_target)
@@ -456,6 +472,7 @@ def render(username: str):
                     run.pack_size or "",
                     run.packaging or "",
                     actual_hrs,
+                    line_number=int(run.line_number),
                 )
 
                 execute(

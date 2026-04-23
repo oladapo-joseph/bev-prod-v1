@@ -90,14 +90,55 @@ def get_target(product_name: str, pack_size: str, packaging: str) -> int:
         return 0
 
 
+def get_line_litres(line_number: int) -> float:
+    """
+    Return the line-specific litres/hr target (most recent entry), or 0.0 if none set.
+    """
+    try:
+        from config import read_sql
+        rows = read_sql(
+            "SELECT litres_per_hour FROM line_targets "
+            "WHERE line_number=? ORDER BY effective_from DESC",
+            params=[line_number],
+        )
+        if not rows.empty:
+            return float(rows.iloc[0]["litres_per_hour"])
+    except Exception:
+        pass
+    return 0.0
+
+
 def get_run_target(product_name: str, pack_size: str, packaging: str,
-                   actual_hours: float) -> int:
-    """Target cases for a run of the given duration (hourly rate × hours)."""
+                   actual_hours: float, line_number: int = None) -> int:
+    """
+    Target cases for a run of the given duration.
+    Uses line-specific litres/hr if set, otherwise falls back to the global HOURLY_LITRES formula.
+    Cases are always derived from volume ÷ bottle size ÷ bottles per case.
+    """
+    if line_number is not None:
+        lph = get_line_litres(line_number)
+        if lph > 0:
+            cph = _cases_per_hour_from_litres(lph, pack_size, packaging)
+            if cph > 0:
+                return max(1, round(cph * actual_hours))
+    # Global fallback
     try:
         cph = HOURLY_TARGETS[product_name][pack_size][packaging]
         return max(1, round(cph * actual_hours))
     except KeyError:
         return 0
+
+
+def _cases_per_hour_from_litres(litres_per_hour: float,
+                                 pack_size_str: str, packaging: str) -> float:
+    """Compute cases/hr from a given litres/hr rate and a pack SKU."""
+    try:
+        s = pack_size_str.strip()
+        litres = float(s.replace("cl", "")) / 100 if s.endswith("cl") else float(s.replace("L", ""))
+        per_case = CAN_BOTTLES_CASE if packaging == "CAN" else PET_BOTTLES_CASE
+        return (litres_per_hour / litres) / per_case
+    except Exception:
+        return 0.0
 
 
 # ── Fault taxonomy ────────────────────────────────────────────────────────────
