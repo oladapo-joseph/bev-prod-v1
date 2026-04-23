@@ -10,7 +10,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
 
-from auth import production_day, current_shift
+from auth import production_day, current_shift, now
 from config import read_sql, execute
 from data.reference import LINES, SHIFTS
 from components.ui import efficiency, eff_color, section_header, kpi_card
@@ -161,7 +161,7 @@ def render(username: str, full_name: str):
         section_header("⚠️ Open runs carrying over to next shift")
         for _, r in open_runs.iterrows():
             try:
-                elapsed = (datetime.now() - datetime.strptime(
+                elapsed = (now() - datetime.strptime(
                     str(r.get("run_start", ""))[:19], "%Y-%m-%d %H:%M:%S"
                 )).total_seconds() / 3600
                 elapsed_str = f"{elapsed:.1f}h elapsed"
@@ -226,7 +226,7 @@ def render(username: str, full_name: str):
                 execute(
                     "UPDATE shift_handovers SET comments=?, submitted_at=? WHERE id=?",
                     (new_comments.strip() or None,
-                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                     now().strftime("%Y-%m-%d %H:%M:%S"),
                      int(last["id"])),
                 )
                 st.success("Handover updated.")

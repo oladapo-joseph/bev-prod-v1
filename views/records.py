@@ -8,7 +8,7 @@ Engineers only see Fault Records.
 import streamlit as st
 from datetime import datetime
 from config import read_sql, execute
-from auth import current_user
+from auth import current_user, now
 from data.reference import LINES, SHIFTS, PRODUCT_NAMES, FAULT_MACHINES
 from components.ui import efficiency, section_header
 
@@ -162,7 +162,7 @@ def render():
                 )
 
                 if st.button("💾  Save Changes", disabled=not e_confirmed, key=f"edit_save_{_eid}"):
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    now_str = now().strftime("%Y-%m-%d %H:%M:%S")
                     editor  = current_user().get("username", "unknown")
                     execute(
                         "UPDATE production_runs SET "

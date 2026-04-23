@@ -84,7 +84,10 @@ if DB_BACKEND == "sqlite":
 # ══════════════════════════════════════════════════════════════════════════════
 
 else:
+    import urllib.parse
     import pyodbc
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.pool import QueuePool
 
     _SERVER   = _secret("DB_SERVER")
     _DATABASE = _secret("DB_NAME")
@@ -92,7 +95,7 @@ else:
     _PASSWORD = _secret("DB_PASSWORD")
     _DRIVER   = _secret("DB_DRIVER", "ODBC Driver 17 for SQL Server")
 
-    def _build_conn_str() -> str:
+    def _build_odbc_str() -> str:
         return (
             f"DRIVER={{{_DRIVER}}};"
             f"SERVER={_SERVER};"
@@ -105,15 +108,36 @@ else:
 
     @st.cache_resource(show_spinner="Connecting to database…")
     def _get_engine():
-        conn_str = _build_conn_str()
-        test = pyodbc.connect(conn_str, timeout=10)
-        test.close()
-        return conn_str
+        """
+        Creates a SQLAlchemy engine with a QueuePool (5 persistent + 10 overflow).
+        Cached for the lifetime of the Streamlit server process — all users share
+        the same pool instead of opening a new TCP connection per query.
+        pool_pre_ping=True silently replaces stale connections before use.
+        pool_recycle=1800 drops and recreates connections idle for >30 min.
+        """
+        odbc_str = _build_odbc_str()
+        engine = create_engine(
+            f"mssql+pyodbc:///?odbc_connect={urllib.parse.quote_plus(odbc_str)}",
+            poolclass=QueuePool,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+        )
+        # Smoke-test on startup
+        with engine.connect() as c:
+            c.execute(text("SELECT 1"))
+        return engine
 
-    def get_conn() -> pyodbc.Connection:
+    def get_conn():
+        """
+        Returns a DBAPI (pyodbc) connection drawn from the pool.
+        Callers must call .close() when done — this returns it to the pool,
+        not to SQL Server, so there is no TCP overhead.
+        """
         try:
-            return pyodbc.connect(_get_engine(), timeout=15)
-        except pyodbc.Error as e:
+            return _get_engine().raw_connection()
+        except Exception as e:
             st.error(f"❌ Database connection failed: {e}")
             raise
 
@@ -123,7 +147,7 @@ else:
             if params:
                 return pd.read_sql(query, conn, params=params)
             return pd.read_sql(query, conn)
-        except pyodbc.Error as e:
+        except Exception as e:
             st.error(f"❌ Query failed: {e}")
             raise
         finally:
@@ -138,7 +162,7 @@ else:
             else:
                 cursor.execute(query)
             conn.commit()
-        except pyodbc.Error as e:
+        except Exception as e:
             conn.rollback()
             st.error(f"❌ Execute failed: {e}")
             raise

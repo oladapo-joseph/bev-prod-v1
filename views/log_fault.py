@@ -9,7 +9,7 @@ The backfill step on run close handles any remaining edge cases.
 import streamlit as st
 from datetime import date, datetime
 
-from auth import production_day, current_shift
+from auth import production_day, current_shift, now
 from config import read_sql, execute
 from data.reference import LINES, SHIFTS, FAULT_DATA, FAULT_MACHINES
 from components.ui import section_header
@@ -97,13 +97,13 @@ def render(username: str, full_name: str):
     # ── Fault time ────────────────────────────────────────────────────────────
     fault_time_input = st.time_input(
         "Time Fault Occurred",
-        value=datetime.now().time(),
+        value=now().time(),
         key=f"ftime_{ffk}",
         help="When did the fault actually happen? (may differ from now)",
     )
     fault_time_str = fault_time_input.strftime("%H:%M") if fault_time_input else None
 
-    if fault_time_input and fault_time_input > datetime.now().time():
+    if fault_time_input and fault_time_input > now().time():
         st.warning("⚠️ Fault time is in the future — please enter the actual time the fault occurred.")
 
     # ── Fault details ─────────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ def render(username: str, full_name: str):
     )
 
     # ── Downtime sanity check against run duration ────────────────────────────
+    _dt_exceeds = False
     if active_run_id and downtime > 0:
         try:
             run_info = read_sql(
@@ -140,27 +141,28 @@ def render(username: str, full_name: str):
                 params=[active_run_id],
             )
             if not run_info.empty:
-                from datetime import datetime as _dt
                 run_start_str = str(run_info.iloc[0]["run_start"])[:19]
-                elapsed_min = (_dt.now() - _dt.strptime(run_start_str, "%Y-%m-%d %H:%M:%S")).total_seconds() / 60
-                existing_dt = float(run_info.iloc[0]["existing_dt"] or 0)
-                total_dt = existing_dt + downtime
+                elapsed_min   = (now() - datetime.strptime(run_start_str, "%Y-%m-%d %H:%M:%S")).total_seconds() / 60
+                existing_dt   = float(run_info.iloc[0]["existing_dt"] or 0)
+                total_dt      = existing_dt + downtime
                 if total_dt > elapsed_min:
-                    st.warning(
-                        f"⚠️ Total downtime for this run would be **{total_dt:.0f} min** "
-                        f"but the run has only been active **{elapsed_min:.0f} min**. "
-                        f"Double-check the downtime value."
+                    _dt_exceeds = True
+                    st.error(
+                        f"⛔ Cannot save — total downtime would be **{total_dt:.0f} min** "
+                        f"but this run has only been active **{elapsed_min:.0f} min**. "
+                        f"Reduce the downtime value before saving."
                     )
         except Exception:
             pass
 
     # ── Validation ────────────────────────────────────────────────────────────
     _ph = ("— Select Machine —", "— Select Detail —", "— Select Machine first —", None)
-    _future_time = bool(fault_time_input and fault_time_input > datetime.now().time())
+    _future_time = bool(fault_time_input and fault_time_input > now().time())
     f_ready = (
         f_shift != "— Select Shift —" and isinstance(f_line, int) and
         fault_machine not in _ph and fault_detail not in _ph and
-        downtime > 0 and reported_by.strip() != "" and not _future_time
+        downtime > 0 and reported_by.strip() != "" and not _future_time and
+        not _dt_exceeds
     )
     if not f_ready:
         missing = []

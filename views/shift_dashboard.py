@@ -20,7 +20,7 @@ import pandas as pd
 import math
 from datetime import date, datetime
 
-from auth import current_shift
+from auth import current_shift, now
 from config import read_sql
 from data.reference import LINES, SHIFTS, HOURLY_TARGETS
 from components.ui import (
@@ -248,7 +248,7 @@ def render():
                     "🔄 Carried over from %s</span>" % run_date
                 ) if is_carry else ""
                 try:
-                    elapsed = (datetime.now() - datetime.strptime(
+                    elapsed = (now() - datetime.strptime(
                         _s(row.get("run_start"))[:19], "%Y-%m-%d %H:%M:%S"
                     )).total_seconds() / 3600
                     elapsed_str = "%.1fh elapsed" % elapsed

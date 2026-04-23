@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 
 from reports.pdf_report import build_production_pdf
 
-from auth import production_day, current_shift
+from auth import production_day, current_shift, now
 from config import read_sql
 from data.reference import LINES, SHIFTS, FAULT_MACHINES
 from components.ui import efficiency, eff_color, kpi_card, alert_banner, build_report, section_header, calc_oee, oee_badge, oee_color
@@ -69,12 +69,12 @@ def render():
         auto_refresh = st.toggle("Auto-refresh (60s)", value=False, key="mgr_refresh")
     if auto_refresh:
         last_refresh = st.session_state.get("_mgr_last_refresh")
-        now = datetime.now()
-        if last_refresh is None or (now - last_refresh).total_seconds() >= 60:
-            st.session_state["_mgr_last_refresh"] = now
+        _now = now()
+        if last_refresh is None or (_now - last_refresh).total_seconds() >= 60:
+            st.session_state["_mgr_last_refresh"] = _now
             st.rerun()
         else:
-            remaining = 60 - int((now - last_refresh).total_seconds())
+            remaining = 60 - int((_now - last_refresh).total_seconds())
             st.caption(f"Auto-refreshing in {remaining}s · Last updated: {last_refresh.strftime('%H:%M:%S')}")
 
     # ── Load all data ─────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ def render():
         cols = st.columns(min(len(open_today), 4))
         for i, (_, r) in enumerate(open_today.iterrows()):
             try:
-                elapsed = (datetime.now() - datetime.strptime(str(r.get("run_start",""))[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600
+                elapsed = (now() - datetime.strptime(str(r.get("run_start",""))[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600
                 elapsed_str = f"{elapsed:.1f}h"
             except Exception:
                 elapsed_str = "—"
@@ -274,7 +274,7 @@ def render():
                 pkg_s        = _safe(row, "packaging")
                 tgt          = _safe_int(row, "packs_target")
                 try:
-                    elapsed = (datetime.now() - datetime.strptime(run_start_s, "%Y-%m-%d %H:%M")).total_seconds() / 3600
+                    elapsed = (now() - datetime.strptime(run_start_s, "%Y-%m-%d %H:%M")).total_seconds() / 3600
                     elapsed_str = "%.1fh elapsed" % elapsed
                 except Exception:
                     elapsed_str = "\u2014"

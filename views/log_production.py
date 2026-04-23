@@ -11,9 +11,9 @@ Flow:
 """
 
 import streamlit as st
-from datetime import date, datetime
+from datetime import datetime
 
-from auth import production_day, current_shift
+from auth import production_day, current_shift, now
 from config import execute, read_sql
 from data.reference import (LINES, SHIFTS, PRODUCTS, PRODUCT_NAMES, PRODUCT_NAME_TO_ID,
                              get_target, get_run_target, get_line_litres,
@@ -27,7 +27,7 @@ _PH = (
 )
 
 def _now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return now().strftime("%Y-%m-%d %H:%M:%S")
 
 def _hrs_between(start_str: str, end_str: str) -> float:
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -209,7 +209,7 @@ def render(username: str):
         else:
             for _, r in open_runs.iterrows():
                 try:
-                    elapsed = (datetime.now() - datetime.strptime(str(r["run_start"])[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600
+                    elapsed = (now() - datetime.strptime(str(r["run_start"])[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600
                     elapsed_str = f"{elapsed:.1f}h elapsed"
                 except Exception:
                     elapsed    = 0.0
@@ -228,20 +228,29 @@ def render(username: str):
                         cph = HOURLY_TARGETS[r["product_name"]][r.get("pack_size") or ""][r.get("packaging") or ""]
                     except KeyError:
                         cph = 0.0
-                rate_str = f"{cph:,.0f} cases/hr" if cph else ""
+                rate_str     = f"{cph:,.0f} cases/hr" if cph else ""
+                overdue      = elapsed > 16
+                elapsed_col  = "#ef4444" if overdue else "var(--accent)"
+                border_style = "border:1px solid #ef4444;" if overdue else ""
+                overdue_tag  = (
+                    " &nbsp;<span style='font-size:.68rem;color:#ef4444;"
+                    "font-family:Space Mono,monospace;font-weight:700'>"
+                    "⚠ OVERDUE — close this run</span>"
+                    if overdue else ""
+                )
                 st.markdown(f"""
-                <div class='metric-card' style='padding:14px 20px'>
+                <div class='metric-card' style='padding:14px 20px;{border_style}'>
                     <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>
                         <span class='line-badge'>LINE {r["line_number"]}</span>
                         <span style='font-size:.9rem;font-weight:500'>
-                            {r["product_name"]} {r.get("flavor","") or ""} \u00b7 {r.get("pack_size","") or ""} {r.get("packaging","") or ""}
+                            {r["product_name"]} {r.get("flavor","") or ""} · {r.get("pack_size","") or ""} {r.get("packaging","") or ""}
                         </span>
-                        <span style='margin-left:auto;font-family:Space Mono,monospace;font-size:.72rem;color:var(--accent)'>\u25b6 RUNNING</span>
+                        <span style='margin-left:auto;font-family:Space Mono,monospace;font-size:.72rem;color:var(--accent)'>▶ RUNNING</span>
                     </div>
-                    <div style='display:flex;gap:24px;font-size:.78rem;color:var(--muted);flex-wrap:wrap'>
+                    <div style='display:flex;gap:24px;font-size:.78rem;color:var(--muted);flex-wrap:wrap;align-items:center'>
                         <span>Shift: {r["shift"].split("(")[0].strip()}</span>
                         <span>Started: {str(r["run_start"])[:16]}</span>
-                        <span style='color:var(--accent)'>{elapsed_str}</span>
+                        <span style='color:{elapsed_col};font-weight:{"700" if overdue else "400"}'>{elapsed_str}{overdue_tag}</span>
                         <span>Est. Target: {live_target:,} cases</span>
                         {f"<span>Rate: {rate_str}</span>" if rate_str else ""}
                         <span>Operator: {r.get("operator_name","—") or "—"}</span>
@@ -278,17 +287,34 @@ def render(username: str):
             selected_label = st.selectbox("Select Run to Close", list(run_map.keys()), key=f"cr_sel_{ck}")
             run = run_map[selected_label]
 
-            # Detect cross-shift carryover
-            cur_shift = current_shift()
+            # ── Shift hierarchy validation ──────────────────────────────────────────────
+            cur_shift    = current_shift()
             is_carryover = run.shift != cur_shift
-            if is_carryover:
+
+            _SHIFT_ORDER = {"Morning": 0, "Afternoon": 1, "Night": 2}
+            _open_key    = run.shift.split("(")[0].strip()
+            _close_key   = cur_shift.split("(")[0].strip()
+            _same_day    = str(run.record_date)[:10] == str(production_day())
+
+            # Block only when closing on the SAME production day in an earlier shift
+            shift_violation = (
+                _same_day and
+                _SHIFT_ORDER.get(_close_key, 0) < _SHIFT_ORDER.get(_open_key, 0)
+            )
+
+            if shift_violation:
+                st.error(
+                    f"⛔ Cannot close an **{_open_key}** run during the **{_close_key}** shift. "
+                    f"Runs must be closed in order — Morning → Afternoon → Night. "
+                    f"Wait for the correct shift or contact your supervisor."
+                )
+            elif is_carryover:
                 st.markdown(
                     f"<div style='background:#7c6ff715;border:1px solid var(--manager);border-radius:8px;"
                     f"padding:10px 16px;margin-bottom:12px'>"
                     f"<span style='font-size:.78rem;color:var(--manager);font-family:Space Mono,monospace;"
                     f"text-transform:uppercase'>"
-                    f"\U0001f504 Cross-shift run \u2014 opened during "
-                    f"{run.shift.split('(')[0].strip()}, closing in {cur_shift.split('(')[0].strip()}"
+                    f"🔄 Cross-shift run — opened during {_open_key}, closing in {_close_key}"
                     f"</span></div>",
                     unsafe_allow_html=True,
                 )
@@ -329,7 +355,7 @@ def render(username: str):
             if packs_produced > 0:
                 import datetime as _dt
                 try:
-                    elapsed_hrs = (_dt.datetime.now() - _dt.datetime.strptime(
+                    elapsed_hrs = (now() - _dt.datetime.strptime(
                         str(run.run_start)[:19], "%Y-%m-%d %H:%M:%S"
                     )).total_seconds() / 3600
                 except Exception:
@@ -409,7 +435,11 @@ def render(username: str):
                 st.error("⛔ Packs rejected cannot exceed packs produced.")
 
             st.markdown("")
-            close_ready = packs_produced > 0 and packs_rejected <= packs_produced
+            close_ready = (
+                packs_produced > 0 and
+                packs_rejected <= packs_produced and
+                not shift_violation
+            )
 
             confirmed = False
             if close_ready:
@@ -417,7 +447,7 @@ def render(username: str):
                 with st.expander("📋 Review before submitting", expanded=True):
                     import datetime as _dt2
                     try:
-                        _elapsed = (_dt2.datetime.now() - _dt2.datetime.strptime(
+                        _elapsed = (now() - _dt2.datetime.strptime(
                             str(run.run_start)[:19], "%Y-%m-%d %H:%M:%S"
                         )).total_seconds() / 3600
                     except Exception:
@@ -474,6 +504,9 @@ def render(username: str):
                     actual_hrs,
                     line_number=int(run.line_number),
                 )
+                # Guard: if target is 0 (unknown SKU), fall back to the opening estimate
+                if run_target == 0:
+                    run_target = int(run.packs_target) or packs_produced
 
                 execute(
                     "UPDATE production_runs SET "

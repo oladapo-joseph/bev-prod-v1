@@ -5,6 +5,7 @@ Usage: pdf_bytes = build_production_pdf(r_prod, r_faults, date_from, date_to, sh
 
 import io
 from datetime import datetime
+from auth import now as _app_now
 
 import pandas as pd
 from reportlab.lib import colors
@@ -134,7 +135,7 @@ def _make_header_footer(title: str, date_range: str):
         canvas.line(MARGIN, 10*mm, pw - MARGIN, 10*mm)
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(_MUTED)
-        canvas.drawString(MARGIN, 4*mm, f"Generated {datetime.now().strftime('%d %b %Y, %H:%M')}  ·  Confidential — For management use only")
+        canvas.drawString(MARGIN, 4*mm, f"Generated {_app_now().strftime('%d %b %Y, %H:%M')}  ·  Confidential — For management use only")
         page_str = f"Page {doc.page}"
         canvas.drawRightString(pw - MARGIN, 4*mm, page_str)
         canvas.restoreState()

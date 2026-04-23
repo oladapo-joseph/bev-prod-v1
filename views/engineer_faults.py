@@ -9,8 +9,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from config import read_sql, execute
-from auth import production_day, current_shift, current_user
-from data.reference import LINES, SHIFTS, FAULT_MACHINES
+from auth import production_day, current_user, now
+from data.reference import LINES, FAULT_MACHINES
 from components.ui import kpi_card, section_header
 
 ROOT_CAUSES = [
@@ -274,7 +274,7 @@ def render():
                             "✅  Close Fault", disabled=not cl_ready,
                             key=f"lf_close_{fid}",
                         ):
-                            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            now_str = now().strftime("%Y-%m-%d %H:%M:%S")
                             execute(
                                 "UPDATE fault_records SET "
                                 "status='closed', actual_downtime_minutes=?, "
@@ -412,7 +412,7 @@ def render():
                             "✅  Close Fault", disabled=not cl_ready,
                             key=f"close_btn_{fid}",
                         ):
-                            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            now_str = now().strftime("%Y-%m-%d %H:%M:%S")
                             execute(
                                 "UPDATE fault_records SET "
                                 "status='closed', actual_downtime_minutes=?, "
