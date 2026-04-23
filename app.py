@@ -132,14 +132,16 @@ if not require_login():
                 st.error("Invalid username or password.")
         st.markdown("""
         <div style="margin-top:20px; padding:14px 16px; background:#1c2030;
-                    border:1px solid #252a35; border-radius:8px;
-                    font-size:0.74rem; color:#6b7280; line-height:2;">
-            <b style="color:#e8eaf0;">Default accounts</b><br>
-            Admin &#8594; <code>admin</code> / <code>admin123</code><br>
-            Manager &#8594; <code>manager1</code> / <code>manager123</code><br>
-            Shift Lead &#8594; <code>lead1</code> or <code>lead2</code> / <code>lead123</code><br>
-            Engineer &#8594; create via User Management
-        </div></div>
+                border:1px solid #252a35; border-radius:8px;
+                font-size:0.74rem; color:#6b7280; line-height:2;">
+            <b style="color:#e8eaf0;">Login Accounts</b><br>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+            <li>👑 <b> Admin </b></li>
+            <li>👔 <b> Manager </b> </li>
+            <li>🏭 <b> Shift Lead </b> </li>
+            <li>🔧 <b> Engineer </b> </li>
+            </ul>
+        </div>
         """, unsafe_allow_html=True)
     st.stop()
 
